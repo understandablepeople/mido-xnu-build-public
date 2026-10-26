@@ -598,7 +598,10 @@ def save_kernel_artifact(build, output, sdk):
 
 def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, experimental_boot_crypto=False,
           mido_no_image4_boot=False, experimental_irq_timer=False, experimental_boot_checkpoints=False,
-          experimental_mapped_checkpoint=False, experimental_platform_expert=False, experimental_pthread=False):
+          experimental_mapped_checkpoint=False, experimental_platform_expert=False, experimental_pthread=False,
+          experimental_memory_root=False):
+    if experimental_memory_root and not experimental_platform_expert:
+        raise ValueError("memory-root diagnostics require the explicit diagnostic platform")
     if experimental_pthread and not experimental_platform_expert:
         raise ValueError("diagnostic pthread requires the explicit diagnostic platform")
     if experimental_platform_expert and not (experimental_boot_crypto and experimental_irq_timer and mido_no_image4_boot):
@@ -636,6 +639,12 @@ def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, e
             raise ValueError("host setup did not pass; inspect setup-report.json")
         if attempt_kernel:
             report["frontend_compatibility"] = prepare_frontend(source)
+        if experimental_memory_root:
+            try:
+                from tools.stage_mido_memory_root import stage_memory_root
+            except ModuleNotFoundError:
+                from stage_mido_memory_root import stage_memory_root
+            report["experimental_memory_root"] = stage_memory_root(source)
         if experimental_pthread:
             try:
                 from tools.stage_mido_pthread import stage_pthread
@@ -752,12 +761,15 @@ def main():
                         help="Opt in to synthetic-only diagnostic IOPlatformExpert; no RTC or hardware approval")
     parser.add_argument("--experimental-pthread", action="store_true",
                         help="Opt in to matching open pthread kernel provider; not userspace approval")
+    parser.add_argument("--experimental-memory-root", action="store_true",
+                        help="Opt in to null RAM-root lifecycle without IOStorageFamily; no mount approval")
     args = parser.parse_args()
     report = check(args.output_directory, args.sdk, args.archive, args.attempt_kernel, args.reviewed_rpc,
                    args.experimental_boot_crypto, args.mido_no_image4_boot, args.experimental_irq_timer,
                    args.experimental_boot_checkpoints, args.experimental_mapped_checkpoint,
                    experimental_platform_expert=args.experimental_platform_expert,
-                   experimental_pthread=args.experimental_pthread)
+                   experimental_pthread=args.experimental_pthread,
+                   experimental_memory_root=args.experimental_memory_root)
     print(json.dumps(report, indent=2))
     for name in ("setup", "exporthdrs", "configuration", "kernel-build"):
         log = args.output_directory / f"{name}.log"
