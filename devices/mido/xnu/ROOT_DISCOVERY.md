@@ -38,5 +38,31 @@ are not overwritten. Symbol presence only supplies static evidence; the audit
 never grants boot approval, even when its prerequisite blocker list is empty.
 It does not inspect dynamically loaded filesystem modules.
 
+## Public-build verification and RAM-disk experiment
+
+Public Action 40352396023 succeeded and produced a 15,333,704-byte kernel,
+SHA-256 2eb4ad70cc3b09549d80c8800ba2070dca922d810a371fd407d63a80d0f9c082.
+The v31 offline run of that exact public kernel reaches the audited original
+resource wait with completed=true, fault=null and inputs_unchanged=true.
+
+The next v33 fixture adds one explicitly reserved 4 KiB diagnostic RAM page
+at 0x22032000, protects it from the allocator by advancing topOfKernelData,
+copies it through the native handoff payload, and selects rd=md0. Those bytes
+are deliberately NOT a filesystem and must not be treated as one.
+
+The real mdevadd executes and returns device 0x01000000 with size_pages=1.
+Execution then reaches the original assertion in IOService::setRootMedia:
+IOService.cpp:5182, expression ioblockstoragedriverClass. The real
+IOBlockStorageDriver metaclass is absent. No successful root selection or
+mounting is claimed, and the assertion was not removed or bypassed.
+
+The matching distribution pins IOStorageFamily commit
+609cbbdf9fa8fd5eae973d9135c7d44b47e6502e. Its official codeload archive has
+SHA-256 42bfd0c4740148e25a7d1c86a94c55b7ce6de66010102bf82368228c5e76759b
+and 84 validated regular-file/directory members. The native driver depends
+on IOMedia, IOStorage, IOBlockStorageDevice and DriverKit/performance-control
+interfaces; registering a fabricated class with the same name is not an
+acceptable substitute. Dependency compilation and registration remain open.
+
 `python -m unittest tests.test_mido_root_checkpoint tests.test_audit_mido_root_support tests.test_mido_macho_symbols`
 checks the standalone observer, audit and bounded symbol reader.
