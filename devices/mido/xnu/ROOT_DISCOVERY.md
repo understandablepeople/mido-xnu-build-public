@@ -64,5 +64,36 @@ on IOMedia, IOStorage, IOBlockStorageDevice and DriverKit/performance-control
 interfaces; registering a fabricated class with the same name is not an
 acceptable substitute. Dependency compilation and registration remain open.
 
+## Verified native md0 selection (v35)
+
+Public Action 40358370749 attempt 2 compiled the explicit memory-root opt-in
+successfully from public commit a7f731adf2d768bb452df06099dcfc8bdbbd7cba.
+Attempt 1 never acquired a hosted runner and did not compile anything.
+The new kernel SHA-256 is
+e2b60375844cc30a473ffcf1fcee6caef6ba252805435321c6efac24533ac2f0.
+The native build report has kernel_built=true, pipeline_passed=true and no
+blockers; this does not grant device boot approval.
+
+The first v34 execution reached the original IOFindBSDRoot return address,
+but the host observer incorrectly read a dynamically mapped output pointer
+as a physical address. Its unmapped host read is not a kernel panic or a
+successful root-selection observation. A bounded, read-only native table
+walker now reads those outputs, including noncontiguous page crossings.
+It does not alter registers, mappings, kernel memory or function results.
+
+The v35 replay of the same kernel then completed with fault=null, no execution
+error and inputs_unchanged=true. Original IOFindBSDRoot returned status 0,
+root_name=md0 and root_device=0x01000000 on the original BSD thread. The
+original mdevadd returned that device; the actual initialized mdev table
+record confirms the LTO-inlined lookup, sector size 512, one page and flags 1.
+The diagnostic RAM page SHA-256 remained unchanged. No return was invented.
+
+The fixture still contains only a 4 KiB diagnostic page, NOT a filesystem.
+root_mounted, disk_io_validated, userspace_booted and device_boot_proven are
+all false. A real root provider and appropriate contents remain the next
+gate. Native mockfs is a possible deliberately limited diagnostic provider,
+not HFS/APFS: its 32-bit memory-device shortcut needs an ARM64 address-width
+review before use with this high virtual-address RAM-disk registration.
+
 `python -m unittest tests.test_mido_root_checkpoint tests.test_audit_mido_root_support tests.test_mido_macho_symbols`
 checks the standalone observer, audit and bounded symbol reader.

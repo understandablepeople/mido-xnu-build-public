@@ -39,6 +39,27 @@ def walk_upper(read_physical, tcr, ttbr1, address):
     raise ValueError("unresolved translation geometry")
 
 
+def read_upper(read_physical, tcr, ttbr1, address, count, ram_start, ram_end):
+    if not 0 < count <= 4096 or not 0 <= address < address + count <= 1 << 64:
+        raise ValueError("invalid bounded virtual read")
+    chunks = []
+    while count:
+        mapping = walk_upper(read_physical, tcr, ttbr1, address)
+        if mapping["status"] != "mapped" or not mapping["access_flag"]:
+            raise ValueError("native output pointer is not an accessible mapping")
+        length = min(count, (1 << mapping["page_shift"]) - (address & ((1 << mapping["page_shift"]) - 1)))
+        physical = mapping["physical"]
+        if not ram_start <= physical < physical + length <= ram_end:
+            raise ValueError("native output mapping lies outside fixture RAM")
+        chunk = bytes(read_physical(physical, length))
+        if len(chunk) != length:
+            raise ValueError("short physical read")
+        chunks.append(chunk)
+        address += length
+        count -= length
+    return b"".join(chunks)
+
+
 def enter_store_translation_abort(cpu, read_physical, instruction):
     from unicorn import arm64_const as registers
 
