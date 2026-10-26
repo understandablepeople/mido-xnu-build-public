@@ -599,7 +599,9 @@ def save_kernel_artifact(build, output, sdk):
 def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, experimental_boot_crypto=False,
           mido_no_image4_boot=False, experimental_irq_timer=False, experimental_boot_checkpoints=False,
           experimental_mapped_checkpoint=False, experimental_platform_expert=False, experimental_pthread=False,
-          experimental_memory_root=False):
+          experimental_memory_root=False, experimental_mockfs=False):
+    if experimental_mockfs and not experimental_memory_root:
+        raise ValueError("mockfs diagnostics require explicit memory-root diagnostics")
     if experimental_memory_root and not experimental_platform_expert:
         raise ValueError("memory-root diagnostics require the explicit diagnostic platform")
     if experimental_pthread and not experimental_platform_expert:
@@ -645,6 +647,12 @@ def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, e
             except ModuleNotFoundError:
                 from stage_mido_memory_root import stage_memory_root
             report["experimental_memory_root"] = stage_memory_root(source)
+        if experimental_mockfs:
+            try:
+                from tools.stage_mido_mockfs import stage_mockfs
+            except ModuleNotFoundError:
+                from stage_mido_mockfs import stage_mockfs
+            report["experimental_mockfs"] = stage_mockfs(source)
         if experimental_pthread:
             try:
                 from tools.stage_mido_pthread import stage_pthread
@@ -763,13 +771,16 @@ def main():
                         help="Opt in to matching open pthread kernel provider; not userspace approval")
     parser.add_argument("--experimental-memory-root", action="store_true",
                         help="Opt in to null RAM-root lifecycle without IOStorageFamily; no mount approval")
+    parser.add_argument("--experimental-mockfs", action="store_true",
+                        help="Opt in to original single-executable mockfs; not a production filesystem")
     args = parser.parse_args()
     report = check(args.output_directory, args.sdk, args.archive, args.attempt_kernel, args.reviewed_rpc,
                    args.experimental_boot_crypto, args.mido_no_image4_boot, args.experimental_irq_timer,
                    args.experimental_boot_checkpoints, args.experimental_mapped_checkpoint,
                    experimental_platform_expert=args.experimental_platform_expert,
                    experimental_pthread=args.experimental_pthread,
-                   experimental_memory_root=args.experimental_memory_root)
+                   experimental_memory_root=args.experimental_memory_root,
+                   experimental_mockfs=args.experimental_mockfs)
     print(json.dumps(report, indent=2))
     for name in ("setup", "exporthdrs", "configuration", "kernel-build"):
         log = args.output_directory / f"{name}.log"
