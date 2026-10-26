@@ -1,10 +1,27 @@
 from copy import deepcopy
 import unittest
 
-from tools.mido_root_mount import image_loader_entry, init_exec_entry, mounted_diagnostic_root
+from tools.mido_root_mount import image_loader_entry, init_exec_entry, mounted_diagnostic_root, user_entry_evidence
 
 
 class RootMountTests(unittest.TestCase):
+    def test_el0_requires_native_eret_and_matching_user_executable_mapping(self):
+        init = dict(original_init_loader_return_observed=True, native_thread=7)
+        eret = dict(native_thread=9, elr=0x100004000, spsr=0, original_kernel_eret=True)
+        mapping = dict(status="mapped", access_flag=True, access_permissions=3, levels=[dict(descriptor=0x743)])
+        code = bytes(range(28))
+        evidence = user_entry_evidence(init, eret, 9, 0x100004000, 0, mapping, code, code)
+        self.assertTrue(evidence["original_el0_entry_observed"])
+        self.assertFalse(evidence["first_instruction_executed"])
+        for thread, pc, state in ((7, 0x100004000, 0), (9, 0x100004004, 0), (9, 0x100004000, 4)):
+            with self.assertRaises(ValueError):
+                user_entry_evidence(init, eret, thread, pc, state, mapping, code, code)
+        with self.assertRaises(ValueError):
+            user_entry_evidence(init, eret, 9, 0x100004000, 0, mapping, code, bytes(28))
+        mapping["levels"][0]["descriptor"] |= 1 << 54
+        with self.assertRaises(ValueError):
+            user_entry_evidence(init, eret, 9, 0x100004000, 0, mapping, code, code)
+
     def fixture(self):
         selection = dict(root_selected=True, root_name="md0", root_device=0x01000000,
                          native_registration=dict(native_thread=7))

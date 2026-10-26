@@ -91,3 +91,27 @@ on MIDO: absent AMFI returns false (no entitlement); a registered provider
 still receives the original query. It does not register a fake provider,
 grant rights, skip signature processing or approve installation. The
 stager pins the original source hash and records before/after hashes.
+
+Public Action 40374524389 (public commit ba7080e) compiled the opt-in guard
+successfully. The resulting kernel is 15,335,800 bytes, SHA-256
+72e7265189ed7cf3f9f4c5b45fb262f0d9d0832d25ed2397ce59fcb555f58553.
+The v43 run observes original load_init_program returning on the init
+thread after LOAD_SUCCESS, without fabricated return values. Its verified
+archive is mido-xnu-init-exec-v43-offline-complete.zip, SHA-256
+6f4e244a6a0b6217b6fb1dc03ccb7283e684590bd89a51d935cbca6422c3a643.
+
+The v45 run additionally reaches PC 0x100004000 with PSTATE=0 (EL0t).
+It observes the original kernel ERET selecting that PC and the native
+thread; the same thread reaches the EL0 code hook. Exec may replace the
+earlier loader thread, so the check uses the actual exception-return
+thread rather than incorrectly requiring the old thread identity.
+The native TTBR0 walk proves an EL0-accessible executable mapping, and
+all 28 payload bytes match the reserved RAM root. completed=true,
+fault=null and inputs_unchanged=true. No new kernel build was needed.
+
+The v45 hook stops BEFORE the first user instruction executes. It proves
+EL0 entry, not completed getpid, a userspace boot or physical device boot.
+SVC delivery and the original syscall/return path remain a separate gate;
+no experimental SVC injector is enabled or shipped. The verified package
+is mido-xnu-user-entry-v45-offline-complete.zip, SHA-256
+60318a4749adfd2525667d232ea32be002553908ec344d3018aa3c61de956eae.

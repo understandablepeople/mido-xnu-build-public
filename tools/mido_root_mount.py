@@ -55,3 +55,20 @@ def image_loader_entry(init, events, entry, calls, header, expected_header, disk
     return dict(original_image_loader_entered=True, root_payload_header_read=True,
                 memdev_strategy_returns=len(reads), disk_contents_unchanged=True,
                 executable_loaded=False, userspace_booted=False, device_boot_proven=False, boot_approved=False)
+
+
+def user_entry_evidence(init_return, eret, thread, pc, pstate, mapping, code, expected_code):
+    if not init_return or not init_return.get("original_init_loader_return_observed"):
+        raise ValueError("EL0 entry lacks original successful init exec")
+    if (not eret or not thread or eret.get("native_thread") != thread or
+            eret.get("elr") != pc or eret.get("spsr", 15) & 15 or pstate & 15 or
+            not eret.get("original_kernel_eret")):
+        raise ValueError("EL0 entry lacks matching original kernel exception return")
+    if (mapping.get("status") != "mapped" or not mapping.get("access_flag") or
+            not mapping.get("access_permissions", 0) & 1 or
+            mapping["levels"][-1]["descriptor"] & (1 << 54) or
+            len(code) != 28 or code != expected_code):
+        raise ValueError("EL0 instruction mapping differs from native executable payload")
+    return dict(pc=pc, native_thread=thread, pstate=pstate, original_el0_entry_observed=True,
+                native_payload_mapping_verified=True, first_instruction_executed=False,
+                syscall_completed=False, device_boot_proven=False, boot_approved=False)
