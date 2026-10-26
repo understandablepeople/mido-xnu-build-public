@@ -58,7 +58,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check bootstrap staging and native compile-command regressions
-        run: python3 -m unittest tests.test_stage_mido_boot_crypto tests.test_stage_mido_nonapple_boot tests.test_stage_mido_runtime tests.test_mido_native_provider tests.test_stage_mido_irq_timer tests.test_stage_mido_boot_checkpoints tests.test_mido_mapped_checkpoint.MappedCheckpointStagingTests tests.test_mido_platform_expert.PlatformExpertStagingTests
+        run: python3 -m unittest tests.test_stage_mido_boot_crypto tests.test_stage_mido_nonapple_boot tests.test_stage_mido_runtime tests.test_mido_native_provider tests.test_stage_mido_irq_timer tests.test_stage_mido_boot_checkpoints tests.test_mido_mapped_checkpoint.MappedCheckpointStagingTests tests.test_mido_platform_expert.PlatformExpertStagingTests tests.test_mido_root_checkpoint tests.test_audit_mido_root_support tests.test_mido_macho_symbols
       - name: Fetch matching hash-pinned open pthread kernel provider
         if: inputs.approve_pthread
         shell: bash
