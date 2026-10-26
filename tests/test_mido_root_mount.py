@@ -1,10 +1,28 @@
 from copy import deepcopy
 import unittest
 
-from tools.mido_root_mount import image_loader_entry, init_exec_entry, mounted_diagnostic_root, user_entry_evidence
+from tools.mido_root_mount import image_loader_entry, init_exec_entry, mounted_diagnostic_root, user_entry_evidence, user_syscall_evidence
 
 
 class RootMountTests(unittest.TestCase):
+    def test_getpid_requires_native_function_return_and_executed_user_marker(self):
+        entry = dict(original_el0_entry_observed=True, native_thread=9)
+        call = dict(native_thread=9, process_pointer=0x2000, original_return_observed=True,
+                    returned_status=0, returned_pid=1)
+        eret = dict(native_thread=9, elr=0x100004008, spsr=0, original_kernel_eret=True)
+        result = user_syscall_evidence(entry, call, eret, 9, 0, 1, 1, 0x444f4d49)
+        self.assertTrue(result["native_getpid_completed"])
+        self.assertFalse(result["result_injected"])
+        for changed in (dict(call, returned_status=5), dict(call, native_thread=8),
+                        dict(call, original_return_observed=False), dict(call, returned_pid=0)):
+            with self.assertRaises(ValueError):
+                user_syscall_evidence(entry, changed, eret, 9, 0, 1, 1, 0x444f4d49)
+        for value, saved, marker in ((2, 1, 0x444f4d49), (1, 2, 0x444f4d49), (1, 1, 0)):
+            with self.assertRaises(ValueError):
+                user_syscall_evidence(entry, call, eret, 9, 0, value, saved, marker)
+        with self.assertRaises(ValueError):
+            user_syscall_evidence(entry, call, dict(eret, elr=0x100004000), 9, 0, 1, 1, 0x444f4d49)
+
     def test_el0_requires_native_eret_and_matching_user_executable_mapping(self):
         init = dict(original_init_loader_return_observed=True, native_thread=7)
         eret = dict(native_thread=9, elr=0x100004000, spsr=0, original_kernel_eret=True)

@@ -72,3 +72,22 @@ def user_entry_evidence(init_return, eret, thread, pc, pstate, mapping, code, ex
     return dict(pc=pc, native_thread=thread, pstate=pstate, original_el0_entry_observed=True,
                 native_payload_mapping_verified=True, first_instruction_executed=False,
                 syscall_completed=False, device_boot_proven=False, boot_approved=False)
+
+
+def user_syscall_evidence(entry, call, eret, thread, pstate, result, saved_result, marker):
+    if not entry or not entry.get("original_el0_entry_observed") or not thread or pstate & 15:
+        raise ValueError("syscall return lacks original EL0 entry")
+    if (not call or call.get("native_thread") != thread or
+            thread != entry.get("native_thread") or not call.get("process_pointer") or
+            not call.get("original_return_observed") or call.get("returned_status") != 0 or
+            not isinstance(call.get("returned_pid"), int) or call["returned_pid"] <= 0):
+        raise ValueError("getpid did not return successfully on the observed native thread")
+    if (not eret or not eret.get("original_kernel_eret") or
+            eret.get("native_thread") != thread or eret.get("elr") != 0x100004008 or
+            eret.get("spsr", 15) & 15):
+        raise ValueError("syscall lacks original native exception return")
+    if result != call["returned_pid"] or saved_result != result or marker != 0x444f4d49:
+        raise ValueError("EL0 result and executed diagnostic marker differ from native getpid")
+    return dict(native_getpid_completed=True, returned_pid=result, native_thread=thread,
+                diagnostic_user_instructions_executed=True, result_injected=False,
+                userspace_booted=False, device_boot_proven=False, boot_approved=False)

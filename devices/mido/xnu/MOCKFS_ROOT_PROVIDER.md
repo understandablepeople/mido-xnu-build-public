@@ -115,3 +115,10 @@ SVC delivery and the original syscall/return path remain a separate gate;
 no experimental SVC injector is enabled or shipped. The verified package
 is mido-xnu-user-entry-v45-offline-complete.zip, SHA-256
 60318a4749adfd2525667d232ea32be002553908ec344d3018aa3c61de956eae.
+
+The subsequent v46 run closes the separate diagnostic syscall gate:
+original getpid returns PID 1, the native kernel returns to EL0, and the
+payload saves the value and constructs its marker. completed=true and
+inputs_unchanged=true. USER_SVC_MODEL.md documents the narrow architectural
+SVC delivery model, observed original function returns and remaining
+hardware limitations. This does not approve handset boot or installation.
