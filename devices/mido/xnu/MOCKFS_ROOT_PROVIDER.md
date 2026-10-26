@@ -70,3 +70,24 @@ This is executable header acquisition and loader entry, NOT successful
 segment loading, EL0 execution, a real syscall or handset boot. The
 CRC/SHA-256-verified package is mido-xnu-init-image-v40-offline-complete.zip
 with SHA-256 cb52132263c34d25ce8082195c9fb9d0a9aa861ff757ae6f0e2d158a508b4840.
+
+The v41 run observes original load_machfile returning LOAD_SUCCESS (zero)
+to exec_mach_imgact on the same init thread. completed=true, fault=null
+and inputs_unchanged=true. Its verified replay archive is
+mido-xnu-init-image-v41-offline-complete.zip, SHA-256
+bbede9b5d4bda14f15d0ad0b65ea29ce866f833a7d0672eefbe5207727aaeaa0.
+The new map has not yet been committed at this return, so this alone is
+not successful exec or user instruction execution.
+
+The v42 continuation stops later in machine_task_process_signature:
+the original inlined IOTaskHasEntitlement loads amfi->OSEntitlements
+through an unregistered (null) amfi pointer. Disassembly confirms the
+faulting instruction and _amfi global; this is not a proven translation
+fault and the CPU model refuses to invent a mapping for it.
+
+The separate --experimental-entitlement-guard build opt-in requires
+explicit mockfs diagnostics. It guards only the original boolean query
+on MIDO: absent AMFI returns false (no entitlement); a registered provider
+still receives the original query. It does not register a fake provider,
+grant rights, skip signature processing or approve installation. The
+stager pins the original source hash and records before/after hashes.

@@ -599,7 +599,9 @@ def save_kernel_artifact(build, output, sdk):
 def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, experimental_boot_crypto=False,
           mido_no_image4_boot=False, experimental_irq_timer=False, experimental_boot_checkpoints=False,
           experimental_mapped_checkpoint=False, experimental_platform_expert=False, experimental_pthread=False,
-          experimental_memory_root=False, experimental_mockfs=False):
+          experimental_memory_root=False, experimental_mockfs=False, experimental_entitlement_guard=False):
+    if experimental_entitlement_guard and not experimental_mockfs:
+        raise ValueError("entitlement guard requires explicit mockfs diagnostics")
     if experimental_mockfs and not experimental_memory_root:
         raise ValueError("mockfs diagnostics require explicit memory-root diagnostics")
     if experimental_memory_root and not experimental_platform_expert:
@@ -653,6 +655,12 @@ def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, e
             except ModuleNotFoundError:
                 from stage_mido_mockfs import stage_mockfs
             report["experimental_mockfs"] = stage_mockfs(source)
+        if experimental_entitlement_guard:
+            try:
+                from tools.stage_mido_entitlement_guard import stage_entitlement_guard
+            except ModuleNotFoundError:
+                from stage_mido_entitlement_guard import stage_entitlement_guard
+            report["experimental_entitlement_guard"] = stage_entitlement_guard(source)
         if experimental_pthread:
             try:
                 from tools.stage_mido_pthread import stage_pthread
@@ -773,6 +781,8 @@ def main():
                         help="Opt in to null RAM-root lifecycle without IOStorageFamily; no mount approval")
     parser.add_argument("--experimental-mockfs", action="store_true",
                         help="Opt in to original single-executable mockfs; not a production filesystem")
+    parser.add_argument("--experimental-entitlement-guard", action="store_true",
+                        help="Deny boolean entitlements when AMFI is absent; no signature bypass")
     args = parser.parse_args()
     report = check(args.output_directory, args.sdk, args.archive, args.attempt_kernel, args.reviewed_rpc,
                    args.experimental_boot_crypto, args.mido_no_image4_boot, args.experimental_irq_timer,
@@ -780,7 +790,8 @@ def main():
                    experimental_platform_expert=args.experimental_platform_expert,
                    experimental_pthread=args.experimental_pthread,
                    experimental_memory_root=args.experimental_memory_root,
-                   experimental_mockfs=args.experimental_mockfs)
+                   experimental_mockfs=args.experimental_mockfs,
+                   experimental_entitlement_guard=args.experimental_entitlement_guard)
     print(json.dumps(report, indent=2))
     for name in ("setup", "exporthdrs", "configuration", "kernel-build"):
         log = args.output_directory / f"{name}.log"
