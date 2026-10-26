@@ -2,7 +2,7 @@ import struct
 import importlib
 import unittest
 
-from tools.mido_mmu_fault import enter_store_translation_abort, walk_upper
+from tools.mido_mmu_fault import enter_store_translation_abort, walk_lower, walk_upper
 
 
 class UpperTranslationTests(unittest.TestCase):
@@ -42,6 +42,15 @@ class UpperTranslationTests(unittest.TestCase):
 
 class NativeAbortReturnTests(unittest.TestCase):
     def test_real_vector_maps_missing_page_and_erets_to_original_store(self):
+        self.check_native_store(False)
+
+    def test_pair_store_retries_and_updates_base_after_native_eret(self):
+        self.check_native_store(True)
+
+    def test_pair_offset_store_retries_without_base_writeback(self):
+        self.check_native_store(True, offset=True)
+
+    def check_native_store(self, pair, offset=False):
         try:
             unicorn = importlib.import_module("unicorn")
         except ImportError:
@@ -51,11 +60,17 @@ class NativeAbortReturnTests(unittest.TestCase):
         cpu.ctl_set_cpu_model(registers.UC_CPU_ARM64_A53)
         cpu.ctl_tlb_mode(unicorn.UC_TLB_CPU)
         cpu.mem_map(0, 0x20000)
-        cpu.mem_write(0x1000, bytes.fromhex("090100b9"))
+        instruction = 0xa9011023 if offset else 0xa8811023 if pair else 0xb9000109
+        cpu.mem_write(0x1000, struct.pack("<I", instruction))
         cpu.mem_write(0x8000, bytes.fromhex("6a0100f99f3a03d51f8708d59f3b03d5df3f03d5e0039fd6"))
         cpu.mem_write(0x10000, struct.pack("<Q", 0x11003))
         cpu.mem_write(0x11000, struct.pack("<Q", 0x701))
         cpu.mem_write(0x12000, struct.pack("<Q", 0x13003))
+        if pair:
+            cpu.mem_write(0x10008, struct.pack("<Q", 0x14003))
+            cpu.reg_write(registers.UC_ARM64_REG_X1, 0x40000010 if offset else 0x40000000)
+            cpu.reg_write(registers.UC_ARM64_REG_X3, 0x1122334455667788)
+            cpu.reg_write(registers.UC_ARM64_REG_X4, 0x8877665544332211)
         cpu.cpr_write(3, 6, 1, 1, 0, (1 << 10) | 1)
         cpu.cpr_write(3, 4, 1, 1, 0, 1 << 31)
         cpu.reg_write(registers.UC_ARM64_REG_PSTATE, 0x3c4)
@@ -65,7 +80,7 @@ class NativeAbortReturnTests(unittest.TestCase):
         cpu.reg_write(registers.UC_ARM64_REG_X8, 0xffffff8000000000)
         cpu.reg_write(registers.UC_ARM64_REG_X9, 0x12345678)
         cpu.reg_write(registers.UC_ARM64_REG_X10, 0x701)
-        cpu.reg_write(registers.UC_ARM64_REG_X11, 0x13000)
+        cpu.reg_write(registers.UC_ARM64_REG_X11, 0x14000 if pair else 0x13000)
         cpu.cpr_write(3, 0, 2, 0, 0, 0x10000)
         cpu.cpr_write(3, 0, 2, 0, 1, 0x12000)
         cpu.cpr_write(3, 0, 2, 0, 2, 25 | (25 << 16) | (2 << 30))
@@ -78,9 +93,11 @@ class NativeAbortReturnTests(unittest.TestCase):
         hook = cpu.hook_add(unicorn.UC_HOOK_INTR, trapped)
         cpu.emu_start(0x1000, 0x1004, count=100)
         self.assertEqual(exceptions, [4])
+        original_memory = bytes(cpu.mem_read(0, 0x20000))
         delivery = enter_store_translation_abort(cpu, lambda address, count: bytes(cpu.mem_read(address, count)),
-                                                  0xb9000109)
-        self.assertEqual(delivery["esr"], 0x97890046)
+                                                  instruction)
+        self.assertEqual(bytes(cpu.mem_read(0, 0x20000)), original_memory)
+        self.assertEqual(delivery["esr"], 0x96000046 if pair else 0x97890046)
         self.assertEqual(delivery["translation"]["fault_level"], 2)
         cpu.emu_start(cpu.reg_read(registers.UC_ARM64_REG_PC), 0x1004, count=100)
         cpu.hook_del(hook)
@@ -88,7 +105,31 @@ class NativeAbortReturnTests(unittest.TestCase):
         self.assertEqual(cpu.reg_read(registers.UC_ARM64_REG_PC), 0x1004)
         self.assertEqual(cpu.reg_read(registers.UC_ARM64_REG_PSTATE), 0x3c4)
         self.assertEqual(cpu.reg_read(registers.UC_ARM64_REG_SP), 0x1f000)
-        self.assertEqual(bytes(cpu.mem_read(0, 4)), struct.pack("<I", 0x12345678))
+        if pair:
+            self.assertEqual(bytes(cpu.mem_read(32 if offset else 0, 16)), struct.pack("<QQ", 0x1122334455667788, 0x8877665544332211))
+            self.assertEqual(cpu.reg_read(registers.UC_ARM64_REG_X1), 0x40000010)
+        else:
+            self.assertEqual(bytes(cpu.mem_read(0, 4)), struct.pack("<I", 0x12345678))
+
+
+class LowerTranslationTests(unittest.TestCase):
+    def test_asid_and_partial_root_alignment(self):
+        locations = []
+        def read(address, count):
+            locations.append(address)
+            return bytes(count)
+        report = walk_lower(read, 26, 0x1000022245800, 0x1000)
+        self.assertEqual(locations, [0x22245800])
+        self.assertEqual(report["fault_level"], 1)
+
+    def test_noncanonical_and_unsupported_granule_rejected(self):
+        for tcr, address in [(26, 1 << 38), (26 | (1 << 14), 0x1000)]:
+            with self.assertRaises(ValueError):
+                walk_lower(lambda address, count: bytes(count), tcr, 0x10000, address)
+
+    def test_disabled_walk(self):
+        report = walk_lower(lambda address, count: bytes(count), 26 | (1 << 7), 0x10000, 0x1000)
+        self.assertEqual(report["status"], "walk-disabled")
 
 
 if __name__ == "__main__":

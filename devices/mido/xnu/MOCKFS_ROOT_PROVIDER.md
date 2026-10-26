@@ -32,3 +32,41 @@ Original filesystem registration, successful mounting, actual block I/O,
 executable validation and first-process execution require separate native
 evidence. The previous arbitrary 4 KiB diagnostic page is not an executable
 and is not evidence of userspace boot, even if mockfs accepts mounting it.
+
+## Native build and execution evidence
+
+Public Action 40364984250 compiled public commit 8d81777 successfully. Its
+kernel is 15,335,856 bytes with SHA-256
+5bb91091720fb468e11c186ee8c286145b4358061ecfbb6cfc34e12ad8c12da5.
+The build report records the reviewed source transformations and has
+pipeline_passed=true, kernel_built=true and no blockers.
+
+The v36 offline run reserves eight RAM pages for a 32 KiB diagnostic
+ARM64 Mach-O, not the previous arbitrary page. Original mockfs_mountroot
+and vfs_mountroot both returned zero on the original BSD thread, after
+the original md0 selection. The VFS return is reached through an audited
+direct BL from bsd_init. completed=true, fault=null and inputs_unchanged=true.
+This proves the native diagnostic root VFS mount, not file reads or execution.
+
+The v37 run of the same kernel additionally reaches original
+load_init_program through an audited BL from original bsdinit_task, on
+the new native init thread. It also has completed=true, fault=null and
+inputs_unchanged=true. No process or function return is fabricated. This
+is init-loader entry only: executable_loaded and userspace_booted remain
+false. CRC/SHA-256-verified replay packages are saved locally as
+mido-xnu-root-mounted-v36-offline-complete.zip and
+mido-xnu-init-entry-v37-offline-complete.zip.
+
+The v40 offline run reaches original load_machfile through an audited
+exec_mach_imgact call on the native init thread. Its 32-byte ARM64 Mach-O
+header matches the reserved root payload, following an observed original
+mdevstrategy return. Disk contents and frozen tool inputs are unchanged;
+completed=true and fault=null. The CPU model delivers proven missing-table
+store aborts for STR W and STP X (post-index or signed offset), using the
+native TTBR0/TTBR1 tables. Original exception handlers resolve the faults
+and retry instructions; the model does not install pages or force returns.
+
+This is executable header acquisition and loader entry, NOT successful
+segment loading, EL0 execution, a real syscall or handset boot. The
+CRC/SHA-256-verified package is mido-xnu-init-image-v40-offline-complete.zip
+with SHA-256 cb52132263c34d25ce8082195c9fb9d0a9aa861ff757ae6f0e2d158a508b4840.

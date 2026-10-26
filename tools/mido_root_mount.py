@@ -1,0 +1,57 @@
+"""Validate observed native diagnostic mount returns, never manufacture them."""
+
+
+def mounted_diagnostic_root(selection, events, mount, bsd_thread):
+    if not selection or not selection.get("root_selected") or selection.get("root_name") != "md0":
+        raise ValueError("native mount lacks selected md0")
+    if not bsd_thread or mount.get("native_thread") != bsd_thread or mount.get("returned_status") != 0:
+        raise ValueError("original VFS mount did not return success on the BSD thread")
+    providers = [event for event in events if event.get("function") == "_mockfs_mountroot"]
+    if (len(providers) != 1 or providers[0].get("native_thread") != bsd_thread
+            or providers[0].get("returned_status") != 0
+            or not providers[0].get("mount_pointer") or not providers[0].get("device_vnode")
+            or events.index(mount) >= events.index(providers[0])):
+        raise ValueError("missing original successful mockfs mount callback")
+    registration = selection.get("native_registration", {})
+    if registration.get("native_thread") != bsd_thread:
+        raise ValueError("root registration and mounting occurred on different threads")
+    return dict(filesystem="mockfs", diagnostic_only=True, root_vfs_mounted=True,
+                original_vfs_return_status=0, original_provider_return_status=0,
+                backing_device=selection["root_device"], native_mount_pointer=providers[0]["mount_pointer"],
+                disk_io_validated=False, executable_validated=False, userspace_booted=False,
+                device_boot_proven=False, production_filesystem=False, boot_approved=False)
+
+
+def init_exec_entry(mount, events, entry, calls):
+    if not mount or not mount.get("root_vfs_mounted"):
+        raise ValueError("init loader reached without observed root mount")
+    if (not calls or entry.get("caller_return_va") not in {address + 4 for address in calls}
+            or not entry.get("process_pointer") or not entry.get("native_thread")):
+        raise ValueError("init loader lacks audited native caller and process")
+    tasks = [event for event in events if event.get("function") == "_bsdinit_task"
+             and event.get("native_thread") == entry.get("native_thread")]
+    if len(tasks) != 1 or events.index(tasks[0]) >= events.index(entry):
+        raise ValueError("init loader lacks original BSD init task entry")
+    return dict(original_init_loader_entered=True, native_thread=entry["native_thread"],
+                process_pointer=entry["process_pointer"], executable_loaded=False,
+                userspace_booted=False, device_boot_proven=False, boot_approved=False)
+
+
+def image_loader_entry(init, events, entry, calls, header, expected_header, disk_unchanged):
+    if not init or not init.get("original_init_loader_entered"):
+        raise ValueError("image loader lacks observed init loader")
+    if (not calls or entry.get("caller_return_va") not in {address + 4 for address in calls}
+            or entry.get("native_thread") != init["native_thread"]):
+        raise ValueError("image loader lacks audited activator call on the init thread")
+    if (len(header) != 32 or header != expected_header or not disk_unchanged
+            or header[:12] != bytes.fromhex("cffaedfe0c00000100000000")):
+        raise ValueError("original file read differs from the ARM64 root payload header")
+    reads = [event for event in events if event.get("function") == "_mdevstrategy"
+             and event.get("native_thread") == entry["native_thread"]
+             and event.get("buffer_pointer") and event.get("original_return_observed")
+             and events.index(event) < events.index(entry)]
+    if not reads:
+        raise ValueError("image header lacks original completed memdev strategy call")
+    return dict(original_image_loader_entered=True, root_payload_header_read=True,
+                memdev_strategy_returns=len(reads), disk_contents_unchanged=True,
+                executable_loaded=False, userspace_booted=False, device_boot_proven=False, boot_approved=False)
