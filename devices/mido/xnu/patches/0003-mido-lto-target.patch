@@ -1,0 +1,8 @@
+diff --git a/makedefs/MakeInc.kernel b/makedefs/MakeInc.kernel
+--- a/makedefs/MakeInc.kernel
++++ b/makedefs/MakeInc.kernel
+@@ -179,3 +179,3 @@
+ 	then \
+-		$(LD) $($(addsuffix $(CURRENT_ARCH_CONFIG),ARCH_FLAGS_)) -r nonlto.o -filelist ltolink.filelist $(LDFLAGS_KERNEL_LTO) -Wl,-object_path_lto,$(TARGET)/justlto.o -o $(TARGET)/justlto.tmp.o && \
++		$(LD) $($(addsuffix $(CURRENT_ARCH_CONFIG),ARCH_FLAGS_)) $(if $(filter MIDO,$(CURRENT_MACHINE_CONFIG)),$(DEPLOYMENT_TARGET_FLAGS) -isysroot $(SDKROOT)) -r nonlto.o -filelist ltolink.filelist $(LDFLAGS_KERNEL_LTO) -Wl,-object_path_lto,$(TARGET)/justlto.o -o $(TARGET)/justlto.tmp.o && \
+ 		if test -d $(TARGET)/justlto.o; \

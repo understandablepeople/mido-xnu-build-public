@@ -1,0 +1,244 @@
+{
+  "IOBufferMemoryDescriptor.iig.cpp": {
+    "variants": [
+      {
+        "generator": "DriverKit-286 Mar 29 2024 10:27:09",
+        "input_sha256": "a14c4d43c184983e4183bb4d4f16b7d4d88bbb0a28e164807e6f8b9a23e8c06e",
+        "output_sha256": "a14c4d43c184983e4183bb4d4f16b7d4d88bbb0a28e164807e6f8b9a23e8c06e",
+        "selected_legacy_branches": {},
+        "ignored_oneway_return_declarations": 0
+      }
+    ],
+    "input_sha256": "cc04cc079bc9b57b4fd6e538676ff4468bb1ac5dff2a0fc6f92e7199f16ce8f7",
+    "output_sha256": "e62c28c4b92e5f6047de08edf5022e91f8310ac9d67f9b9d62b98ab52e69d6ef",
+    "selected_legacy_branches": {
+      "invocation_message_type": 2,
+      "invocation_field": 2,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 2,
+      "typed_message_lookup": 2
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IODataQueueDispatchSource.iig.cpp": {
+    "input_sha256": "53774709aa8147db68a28ab33b2a9b7f2e892142422d112185a34e6a4fc6a528",
+    "output_sha256": "e0def954607eec110e363a68f4361ce0de9fd176d13cbd82b1ee58a188995f98",
+    "selected_legacy_branches": {
+      "invocation_message_type": 8,
+      "invocation_field": 8,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 8,
+      "typed_message_lookup": 8
+    },
+    "ignored_oneway_return_declarations": 2
+  },
+  "IODispatchQueue.iig.cpp": {
+    "input_sha256": "6b4e986ba1ec04f1d2221e1421a7054da415f257d7b9bdf499390f768b14c91e",
+    "output_sha256": "4d7719ab2a29caa305f8b42ca126df098a071421453df3fb6e765e54ef1cdbe1",
+    "selected_legacy_branches": {
+      "invocation_message_type": 2,
+      "invocation_field": 2,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 2,
+      "typed_message_lookup": 2
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IODispatchSource.iig.cpp": {
+    "input_sha256": "0946b9ca67f309f5a206975846822d96749a8b69581a7adc5b81396374a33816",
+    "output_sha256": "2dafc5c43a0a2af1b803d2571ecf195be90c920bd5182270f072f75bd8048f8f",
+    "selected_legacy_branches": {
+      "invocation_message_type": 4,
+      "invocation_field": 4,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 4,
+      "reply_lookup": 1,
+      "typed_message_lookup": 4,
+      "nested_reply_lookup": 1
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IODMACommand.iig.cpp": {
+    "variants": [
+      {
+        "generator": "DriverKit-286 Mar 29 2024 10:27:09",
+        "input_sha256": "2351c21daca4610f63d49fe54b6ea91a7644644f0bcb92f52b98eea268241811",
+        "output_sha256": "2351c21daca4610f63d49fe54b6ea91a7644644f0bcb92f52b98eea268241811",
+        "selected_legacy_branches": {},
+        "ignored_oneway_return_declarations": 0
+      }
+    ],
+    "input_sha256": "956fa2feb6c942a70d66ac5bf3ffec9a69d556032cd5a48e74008b19572276bc",
+    "output_sha256": "bae592e89769b6b7569f4ecab74583bc619c2bce108981b79edc8f9a1fdf4f16",
+    "selected_legacy_branches": {
+      "invocation_message_type": 5,
+      "invocation_field": 5,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 5,
+      "typed_message_lookup": 5
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IOEventLink.iig.cpp": {
+    "input_sha256": "5f6c7b0f7e8929078cc8e124a42d9781088c2d9a7e304fde6e1ac431c85bf6e0",
+    "output_sha256": "d36237c03fa59da9884938e85bed32b902a57db30d5eec4c7259fe724ead3077",
+    "selected_legacy_branches": {
+      "invocation_message_type": 3,
+      "invocation_field": 3,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 3,
+      "typed_message_lookup": 3
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IOInterruptDispatchSource.iig.cpp": {
+    "input_sha256": "a6efc0528bde7416e48dc74744440def3db4f81acf9d4fea8139c06e419b6ca9",
+    "output_sha256": "468ec6caa03fc6b1746f702254ebfa65f9f56985d043d36869d914290ac01e96",
+    "selected_legacy_branches": {
+      "invocation_message_type": 5,
+      "invocation_field": 5,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 4,
+      "kernel_content_assignment": 1,
+      "typed_message_lookup": 5
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IOMemoryDescriptor.iig.cpp": {
+    "input_sha256": "6442521493bd4e2949130225d90e1684e43f0acc4fdead28b4b359bbe2269709",
+    "output_sha256": "db121626a2338bee7bcf435a3a96e7e59b574fbb6674286cbe865bce999b3df1",
+    "selected_legacy_branches": {
+      "invocation_message_type": 4,
+      "invocation_field": 4,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 4,
+      "typed_message_lookup": 4
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IOMemoryMap.iig.cpp": {
+    "input_sha256": "d221f0ec6b25972724752703c6fb730538742971550e8df97d5774925e126b82",
+    "output_sha256": "4c201dd00023f90bf4d1fa4e1c677739850ec78ea64e18b256a110de315dab72",
+    "selected_legacy_branches": {
+      "invocation_message_type": 1,
+      "invocation_field": 1,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 1,
+      "typed_message_lookup": 1
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IOService.iig.cpp": {
+    "input_sha256": "6dc3ca8558ce93613e9323a27cf67dd6cb8a12fba93c61d78ae1e82ae7981941",
+    "output_sha256": "f56e46cdf81d8d707cfb9cdcdb51c204cbcc8823d44226bafaac41d224b52608",
+    "selected_legacy_branches": {
+      "invocation_message_type": 36,
+      "invocation_field": 36,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 36,
+      "typed_message_lookup": 36
+    },
+    "ignored_oneway_return_declarations": 1
+  },
+  "IOServiceNotificationDispatchSource.iig.cpp": {
+    "input_sha256": "ac86f35733997b8f37f09b55fc0519b4fa202ebe1e991d722b433db94c177f64",
+    "output_sha256": "c6347088c3d29606db4fd876d09fa3f4d87eb0b417bfb7b70946b23672089a38",
+    "selected_legacy_branches": {
+      "invocation_message_type": 4,
+      "invocation_field": 4,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 4,
+      "typed_message_lookup": 4
+    },
+    "ignored_oneway_return_declarations": 1
+  },
+  "IOServiceStateNotificationDispatchSource.iig.cpp": {
+    "input_sha256": "a09a3bf19ff8b286e5622128d66b92495490e3bc1d27cb7a77df230061690b21",
+    "output_sha256": "ab4d3c0f0d3adeb720b0dfeaf1c9c9bd6f65094fb451c0431d6d3822eb7bc11b",
+    "selected_legacy_branches": {
+      "invocation_message_type": 4,
+      "invocation_field": 4,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 4,
+      "typed_message_lookup": 4
+    },
+    "ignored_oneway_return_declarations": 1
+  },
+  "IOUserClient.iig.cpp": {
+    "input_sha256": "300643c5d9e358ab153376d45e86742f1c56c022730c0c86bb4764652b09b752",
+    "output_sha256": "ce961aae118dd79f3c49d24b0ce6facd4fb9b998e116ecc49cb0f09de60d25b6",
+    "selected_legacy_branches": {
+      "invocation_message_type": 5,
+      "invocation_field": 5,
+      "content_accessor": 2,
+      "message_lookup": 4,
+      "rpc_initializer": 5,
+      "typed_message_lookup": 5
+    },
+    "ignored_oneway_return_declarations": 1
+  },
+  "IOUserServer.iig.cpp": {
+    "input_sha256": "ca497ead34734f38c50f1d9419fd579b8eeb038e9a578e935f75d8fcfa722596",
+    "output_sha256": "b05e9cc4c8288ad25d1f37393843da0f3dcff814cb6eb6f6307c6b0b92c3ac57",
+    "selected_legacy_branches": {
+      "invocation_message_type": 3,
+      "invocation_field": 3,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 3,
+      "typed_message_lookup": 3
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "IOWorkGroup.iig.cpp": {
+    "input_sha256": "015a53b821cace5a5be8eff0846a242093fa641168a8f77e1a0caa7d88f0a259",
+    "output_sha256": "b482b14cc38e7d30ceab7629fdd88d5ad30bbee41b102f1ce774d2b6ec49bdce",
+    "selected_legacy_branches": {
+      "invocation_message_type": 3,
+      "invocation_field": 3,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 3,
+      "typed_message_lookup": 3
+    },
+    "ignored_oneway_return_declarations": 0
+  },
+  "OSAction.iig.cpp": {
+    "input_sha256": "8033df4529f8267f8df84653b38f0961926db5f4d3ffb94b9276ec1b7a95db4a",
+    "output_sha256": "072b0be289591ff4dec3aa00830ff1ccd0607832d05fb1439e7d66a85cd16e03",
+    "selected_legacy_branches": {
+      "invocation_message_type": 3,
+      "invocation_field": 3,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 3,
+      "typed_message_lookup": 3
+    },
+    "ignored_oneway_return_declarations": 1
+  },
+  "OSObject.iig.cpp": {
+    "input_sha256": "39d669f6a505167c6cc268baca4e29a99cea0c66c154358c4865837ab040c10a",
+    "output_sha256": "f6f0f6c19730e599bf11a76ffb558d785d28a6ac40ed68f0605382af5afde05a",
+    "selected_legacy_branches": {
+      "invocation_message_type": 2,
+      "invocation_field": 2,
+      "content_accessor": 1,
+      "message_lookup": 2,
+      "rpc_initializer": 2,
+      "typed_message_lookup": 2
+    },
+    "ignored_oneway_return_declarations": 0
+  }
+}

@@ -1,0 +1,403 @@
+{
+  "purpose": "Reviewed same-width signed-to-unsigned diagnostic argument casts; no expression re-evaluation",
+  "evidence_run": 40212971703,
+  "profiles": {
+    "bsd/kern/kern_control.c": {
+      "sha256": "2160be4f9851e4e759e26cbc09f5633d98ff790b4dfcbe78b24f6d08a41dca3d",
+      "casts": [
+        [
+          2037,
+          33,
+          "so->so_usecount",
+          "unsigned int"
+        ],
+        [
+          2076,
+          11,
+          "so->so_usecount",
+          "unsigned int"
+        ],
+        [
+          2081,
+          11,
+          "so->so_usecount",
+          "unsigned int"
+        ],
+        [
+          2108,
+          33,
+          "so->so_usecount",
+          "unsigned int"
+        ]
+      ]
+    },
+    "bsd/kern/kern_exec.c": {
+      "sha256": "8488b433b904dc599af55c672edafd6673cb26c16122ac8acb1cdf30904cbee8",
+      "casts": [
+        [
+          7620,
+          150,
+          "kr",
+          "unsigned int"
+        ]
+      ]
+    },
+    "bsd/kern/kern_exit.c": {
+      "sha256": "16e9f12bcc556be123353136770b1318d5a2b6718c2bf602290a427f18183296",
+      "casts": [
+        [
+          1484,
+          48,
+          "rv",
+          "unsigned int"
+        ]
+      ]
+    },
+    "bsd/kern/kern_memorystatus_notify.c": {
+      "sha256": "f1c5b6f739f0072fc5948f2e8306f305d65e3d3a8f59d16e0f13a0a63705a58f",
+      "casts": [
+        [
+          1983,
+          96,
+          "fflags",
+          "unsigned int"
+        ],
+        [
+          2009,
+          125,
+          "fflags",
+          "unsigned int"
+        ],
+        [
+          2012,
+          148,
+          "fflags",
+          "unsigned int"
+        ]
+      ]
+    },
+    "bsd/kern/kern_resource.c": {
+      "sha256": "2b8db2e8540d64c2a9b93b91cbc962ec509c62e80129d91038ed2aacb5fe466d",
+      "casts": [
+        [
+          2657,
+          30,
+          "mach_rv",
+          "unsigned int"
+        ]
+      ]
+    },
+    "bsd/kern/kern_symfile.c": {
+      "sha256": "34fb2768d92ab8bd3b93f2b68a81c4abb2b0b75350c2349b79b4e7a9e7898da2",
+      "casts": [
+        [
+          570,
+          34,
+          "maxiocount",
+          "unsigned long long"
+        ]
+      ]
+    },
+    "bsd/kern/mcache.c": {
+      "sha256": "91e0f9fb0d7fe5d6a2ffb9a918d02189eedab30db339c0f4774a80a1b8268722",
+      "casts": [
+        [
+          1726,
+          15,
+          "got",
+          "unsigned long long"
+        ],
+        [
+          1726,
+          20,
+          "expected",
+          "unsigned long long"
+        ],
+        [
+          1733,
+          20,
+          "got",
+          "unsigned long long"
+        ],
+        [
+          1733,
+          25,
+          "expected",
+          "unsigned long long"
+        ]
+      ]
+    },
+    "bsd/kern/subr_prf.c": {
+      "sha256": "8fdb08f39bf4b4f8b3513585fac710716ac6e53e67b71708b388f0054ff8be6e",
+      "casts": [
+        [
+          305,
+          32,
+          "secs",
+          "unsigned long"
+        ]
+      ]
+    },
+    "bsd/kern/sys_generic.c": {
+      "sha256": "82fdc240cc03aba4b032173ab33108f9b8491bc3b60bd162f43d0219a5b44158",
+      "casts": [
+        [
+          2461,
+          23,
+          "OS_LOG_DATA_MAX_SIZE",
+          "unsigned int"
+        ]
+      ]
+    },
+    "bsd/kern/tty_pty.c": {
+      "sha256": "983581c56e318ddda95e87e1eef770c0916536ee303fec2a7b5d3c65157c2b73",
+      "casts": [
+        [
+          159,
+          35,
+          "i",
+          "unsigned int"
+        ],
+        [
+          162,
+          35,
+          "i",
+          "unsigned int"
+        ]
+      ]
+    },
+    "iokit/Kernel/IOLib.cpp": {
+      "sha256": "5972677a3f93aaedb1be5c5075ae686ec570a978c31e8a1d4faa19e7d57b6d8c",
+      "casts": [
+        [
+          1650,
+          57,
+          "value",
+          "unsigned int"
+        ]
+      ]
+    },
+    "iokit/Kernel/IOPMrootDomain.cpp": {
+      "sha256": "7d8a2db2da31c0d8aded672c10c76d2ca6222206cbf1794e2e18c228a34c58a0",
+      "casts": [
+        [
+          4802,
+          35,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          10056,
+          65,
+          "me->visits",
+          "unsigned int"
+        ],
+        [
+          10319,
+          36,
+          "i",
+          "unsigned int"
+        ]
+      ]
+    },
+    "iokit/Kernel/IOPolledInterface.cpp": {
+      "sha256": "aa8fe75a5fc515e7b0f31e1249452f51aa9cc3ec0dee8168a37f38fd0a8f09d5",
+      "casts": [
+        [
+          181,
+          55,
+          "err",
+          "unsigned int"
+        ],
+        [
+          225,
+          54,
+          "err",
+          "unsigned int"
+        ],
+        [
+          265,
+          55,
+          "err",
+          "unsigned int"
+        ],
+        [
+          372,
+          55,
+          "err",
+          "unsigned int"
+        ],
+        [
+          375,
+          108,
+          "err",
+          "unsigned int"
+        ],
+        [
+          427,
+          61,
+          "err",
+          "unsigned int"
+        ],
+        [
+          431,
+          49,
+          "err",
+          "unsigned int"
+        ],
+        [
+          708,
+          59,
+          "err",
+          "unsigned int"
+        ],
+        [
+          752,
+          41,
+          "err",
+          "unsigned int"
+        ],
+        [
+          764,
+          46,
+          "err",
+          "unsigned int"
+        ],
+        [
+          868,
+          66,
+          "err",
+          "unsigned int"
+        ],
+        [
+          1012,
+          119,
+          "err",
+          "unsigned int"
+        ]
+      ]
+    },
+    "iokit/Kernel/IOServicePM.cpp": {
+      "sha256": "551254d9ac104251617936122e1f32ca1889435e7568c070daaf718577743db2",
+      "casts": [
+        [
+          4239,
+          64,
+          "result",
+          "unsigned int"
+        ]
+      ]
+    },
+    "iokit/Kernel/IOUserServer.cpp": {
+      "sha256": "2a3c7e5e45c0c943e9bba0689e25ce6b13897ae2e69a3d63bc4a0efbf670bc2f",
+      "casts": [
+        [
+          2416,
+          50,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          3061,
+          80,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          3069,
+          106,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          3161,
+          30,
+          "msgin->msgh.msgh_id",
+          "unsigned int"
+        ],
+        [
+          3179,
+          36,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          3179,
+          41,
+          "msgin->msgh.msgh_id",
+          "unsigned int"
+        ],
+        [
+          3394,
+          108,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          3508,
+          38,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          3537,
+          38,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          3537,
+          43,
+          "mach->msgh.msgh_id",
+          "unsigned int"
+        ],
+        [
+          4569,
+          50,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          5901,
+          103,
+          "ret",
+          "unsigned int"
+        ],
+        [
+          5974,
+          103,
+          "ret",
+          "unsigned int"
+        ]
+      ]
+    },
+    "iokit/bsddev/DINetBootHook.cpp": {
+      "sha256": "8c6ae64c13c9f5b75355f6b58eaef41c9a81fc45f052f2f5947b69b042549ca1",
+      "casts": [
+        [
+          226,
+          53,
+          "res",
+          "unsigned int"
+        ],
+        [
+          331,
+          53,
+          "res",
+          "unsigned int"
+        ]
+      ]
+    },
+    "osfmk/arm/arm_init.c": {
+      "sha256": "5161a3fc8b31b3317e2dd745594ec8a6877590a3976147b52bfd1255d9eec47e",
+      "casts": [
+        [
+          555,
+          5,
+          "SERIALMODE_ON_DEMAND",
+          "unsigned int"
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,396 @@
+{
+  "purpose": "Reviewed explicit no-op default exits before the first case; no source control-flow changes",
+  "evidence_run": 40212971703,
+  "profiles": {
+    "bsd/kern/kdebug.c": {
+      "sha256": "e1992ec266650c7c92eed78841e71b73740293fe6ef54ba476f22ea53fce4291",
+      "insertions": [
+        [
+          580,
+          "\tswitch (emit) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_authorization.c": {
+      "sha256": "a7d9e1bdbb4feacd4edfa2731958471300c7577a0516c4b8031aac22f4655126",
+      "insertions": [
+        [
+          733,
+          "\t\t\t\t\tswitch (ace->ace_flags & KAUTH_ACE_KINDMASK) {\n",
+          "\t\t\t\t\t"
+        ],
+        [
+          587,
+          "\tswitch (action) {\n",
+          "\t"
+        ],
+        [
+          457,
+          "\tswitch (action) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_control.c": {
+      "sha256": "f2747822a6bb5cb6c4fd0b03ab24b17b06a9123e29bbd2da9c165673f89cb62b",
+      "insertions": [
+        [
+          1428,
+          "\tswitch (cmd) {\n",
+          "\t"
+        ],
+        [
+          1340,
+          "\tswitch (sopt->sopt_dir) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_credential.c": {
+      "sha256": "3204b32a7f9b31ae67003b394f5931544de3bfcda88c0edd7cab5e4f6e27664c",
+      "insertions": [
+        [
+          1804,
+          "\t\tswitch (code) {\n",
+          "\t\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_event.c": {
+      "sha256": "ff84a6ed5304a2724fe97ab5fc5518be105f5b145b5de3ceaf5ff779a2760416",
+      "insertions": [
+        [
+          4968,
+          "\t\tswitch (current_uthread()->syscall_code) {\n",
+          "\t\t"
+        ],
+        [
+          4632,
+          "\tswitch (cmd) {\n",
+          "\t"
+        ],
+        [
+          1884,
+          "\tswitch (ffctrl) {\n",
+          "\t"
+        ],
+        [
+          1769,
+          "\tswitch (state & TIMER_STATE_MASK) {\n",
+          "\t"
+        ],
+        [
+          1179,
+          "\t\t\t\tswitch (kn->kn_proc->p_lflag & P_JETSAM_MASK) {\n",
+          "\t\t\t\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_exec.c": {
+      "sha256": "677c543e44171dcb914f6d4551e65f407983d5913b3fc4224b5f8b5995990a3b",
+      "insertions": [
+        [
+          2890,
+          "\t\tswitch (psfa->psfaa_type) {\n",
+          "\t\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_exit.c": {
+      "sha256": "c84c2f08344a11540805c2ddb9fd35659c3158b74aff349220bbb881c541ddfa",
+      "insertions": [
+        [
+          3126,
+          "\t\tswitch (uap->idtype) {\n",
+          "\t\t"
+        ],
+        [
+          3109,
+          "\tswitch (uap->idtype) {\n",
+          "\t"
+        ],
+        [
+          1624,
+          "\tswitch (sig) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_lockf.c": {
+      "sha256": "f8b6e99774ea2ed374e8f5d0624364fe6fe40be1d69455049be9dc204472e379",
+      "insertions": [
+        [
+          1022,
+          "\t\tswitch (ovcase) {\n",
+          "\t\t"
+        ],
+        [
+          857,
+          "\t\tswitch (ovcase) {\n",
+          "\t\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_memorystatus.c": {
+      "sha256": "b59fb2dfff7051fb3abcc392c09cd1b1524e8d7dba7ddde98ad33e3f1920643d",
+      "insertions": [
+        [
+          3958,
+          "\tswitch (action) {\n",
+          "\t"
+        ],
+        [
+          2297,
+          "\tswitch (relaunch_flags) {\n",
+          "\t"
+        ],
+        [
+          1595,
+          "\tswitch (cause) {\n",
+          "\t"
+        ],
+        [
+          114,
+          "\tswitch (priority) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_memorystatus_notify.c": {
+      "sha256": "8e1c712fcbca020f591f51a34027aaeac9e587d4db3172ff19b497c82d7ee9ac",
+      "insertions": [
+        [
+          1852,
+          "\tswitch (trigger_request) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_mman.c": {
+      "sha256": "5b2fe8454b3a1b725e5b3ed91464ae073a4d9f4062d3d1fe983b7249ef2da500",
+      "insertions": [
+        [
+          1278,
+          "\tswitch (result) {\n",
+          "\t"
+        ],
+        [
+          1188,
+          "\tswitch (result) {\n",
+          "\t"
+        ],
+        [
+          1153,
+          "\tswitch (result) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_synch.c": {
+      "sha256": "015d68e07dc3975aee47b2e307d6d3a4e57541f8ab87ffc9a44034f0a1044b0a",
+      "insertions": [
+        [
+          277,
+          "\tswitch (wait_result) {\n",
+          "\t"
+        ],
+        [
+          78,
+          "\tswitch (wresult) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_sysctl.c": {
+      "sha256": "e74451000aa423189fa2d0a884d89582b1544c9158c16284ca9f27c75fb358b5",
+      "insertions": [
+        [
+          3341,
+          "\t\tswitch (new_value) {\n",
+          "\t\t"
+        ]
+      ]
+    },
+    "bsd/kern/kern_time.c": {
+      "sha256": "1de4532e83784494d28388cdbf5d56cb5896f8c334532e5113d7a24f3c4be6db",
+      "insertions": [
+        [
+          428,
+          "\tswitch (uap->which) {\n",
+          "\t"
+        ],
+        [
+          324,
+          "\tswitch (uap->which) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/subr_log.c": {
+      "sha256": "736800e5ed3a476a576af3aad76acd333c391a91ef14080a0230c2d3b3ccf800",
+      "insertions": [
+        [
+          341,
+          "\tswitch (rw) {\n",
+          "\t"
+        ],
+        [
+          324,
+          "\tswitch (rw) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/sys_generic.c": {
+      "sha256": "a89bdea432b2c670ef5add320fd244b4efdc80ebd7ff3f88bfda86ef24e94105",
+      "insertions": [
+        [
+          1870,
+          "\tswitch (kevp->filter) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/sys_pipe.c": {
+      "sha256": "0dc6dde5462d3bff1b701da0bc487a368c4671eace2cb8c0b59ac10b1d90ea18",
+      "insertions": [
+        [
+          1269,
+          "\tswitch (which) {\n",
+          "\t"
+        ],
+        [
+          1206,
+          "\tswitch (cmd) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/sys_socket.c": {
+      "sha256": "ca861b2b2222458a0e26437889a217c2f2ab15d3409ff4d770edd3d25d0b522b",
+      "insertions": [
+        [
+          463,
+          "\tswitch ((u_long)0) {\n",
+          "\t"
+        ],
+        [
+          314,
+          "\tswitch (which) {\n",
+          "\t"
+        ],
+        [
+          202,
+          "\tswitch (cmd) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/tty.c": {
+      "sha256": "2b4e2fd1e60bda01fe4905a0d9fbd33dea8c0381ea029554c458f03b0a6e7010",
+      "insertions": [
+        [
+          3044,
+          "\tswitch (TESTAB(p1->p_stat == SZOMB, p2->p_stat == SZOMB)) {\n",
+          "\t"
+        ],
+        [
+          1576,
+          "\t\tswitch (rw) {\n",
+          "\t\t"
+        ],
+        [
+          1554,
+          "\tswitch (rw) {\n",
+          "\t"
+        ],
+        [
+          1015,
+          "\tswitch (cmd) {\n",
+          "\t"
+        ],
+        [
+          891,
+          "\tswitch (CCLASS(c)) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/tty_compat.c": {
+      "sha256": "da277dbd8277967a3e5493f0f3cbea1cb5e1654217e2ad96d311e5be175a2cfe",
+      "insertions": [
+        [
+          216,
+          "\tswitch (*com) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "bsd/kern/tty_dev.c": {
+      "sha256": "cbb20212667dd7790e2d1734adc5122b673e75280a3530b001324c1fe56be457",
+      "insertions": [
+        [
+          797,
+          "\tswitch (rw) {\n",
+          "\t"
+        ],
+        [
+          745,
+          "\tswitch (rw) {\n",
+          "\t"
+        ]
+      ]
+    },
+    "iokit/Kernel/IOPMrootDomain.cpp": {
+      "sha256": "f4baf734de394c558c6739c914164b37363d0089d94ef002a7e19c93458d37d7",
+      "insertions": [
+        [
+          9595,
+          "\tswitch (action) {\n",
+          "\t"
+        ],
+        [
+          9103,
+          "\tswitch (eventIndex) {\n",
+          "\t"
+        ],
+        [
+          7909,
+          "\tswitch (event) {\n",
+          "\t"
+        ],
+        [
+          7218,
+          "\tswitch (messageType) {\n",
+          "\t"
+        ],
+        [
+          3772,
+          "\t\tswitch (messageType) {\n",
+          "\t\t"
+        ]
+      ]
+    },
+    "iokit/Kernel/IOServicePM.cpp": {
+      "sha256": "44a2eabb59d9c703cd6b96e1f245d0e7556cdd4b624e5596f81b9898436169df",
+      "insertions": [
+        [
+          7310,
+          "\tswitch (action) {\n",
+          "\t"
+        ],
+        [
+          7178,
+          "\tswitch (action) {\n",
+          "\t"
+        ],
+        [
+          6175,
+          "\tswitch (fOutOfBandParameter) {\n",
+          "\t"
+        ]
+      ]
+    }
+  }
+}

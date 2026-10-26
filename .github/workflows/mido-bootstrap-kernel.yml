@@ -1,0 +1,140 @@
+name: Experimental MIDO bootstrap kernel - no device access
+
+on:
+  workflow_dispatch:
+    inputs:
+      approve_diagnostic_kernel:
+        description: Approve one full build with incomplete fail-closed bootstrap crypto
+        required: true
+        default: false
+        type: boolean
+      approve_nonapple_boot:
+        description: Explicitly use non-Image4 startup on MIDO; not Apple secure-boot approval
+        required: true
+        default: false
+        type: boolean
+      approve_irq_timer:
+        description: Include experimental single-CPU GICv2 timer backend; no device access
+        required: true
+        default: false
+        type: boolean
+      approve_boot_checkpoints:
+        description: Include pre-MMU MIDO framebuffer entry marks; no device access
+        required: true
+        default: false
+        type: boolean
+      approve_mapped_checkpoint:
+        description: Include mapped EARLY_BOOT framebuffer marker; requires explicit DT contract
+        required: true
+        default: false
+        type: boolean
+      approve_platform_expert:
+        description: Include synthetic-only diagnostic platform expert; no RTC or hardware approval
+        required: true
+        default: false
+        type: boolean
+
+      approve_pthread:
+        description: Include matching open pthread kernel implementation; no userspace approval
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mido-bootstrap-kernel
+  cancel-in-progress: false
+
+jobs:
+  kernel:
+    if: inputs.approve_diagnostic_kernel
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check bootstrap staging and native compile-command regressions
+        run: python3 -m unittest tests.test_stage_mido_boot_crypto tests.test_stage_mido_nonapple_boot tests.test_stage_mido_runtime tests.test_mido_native_provider tests.test_stage_mido_irq_timer tests.test_stage_mido_boot_checkpoints tests.test_mido_mapped_checkpoint.MappedCheckpointStagingTests tests.test_mido_platform_expert.PlatformExpertStagingTests
+      - name: Fetch matching hash-pinned open pthread kernel provider
+        if: inputs.approve_pthread
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests.test_stage_mido_pthread
+          mkdir -p artifacts
+          curl --fail --location --retry 3 --max-time 120 https://codeload.github.com/apple-oss-distributions/libpthread/tar.gz/a6c70ca0e544347a0377babf748f831577ec24f9 -o artifacts/libpthread-mido.tar.gz
+          python3 - <<'PY'
+          from pathlib import Path
+          from tools.stage_mido_pthread import dependency_files
+          dependency_files(Path('artifacts/libpthread-mido.tar.gz'))
+          PY
+      - name: Fetch pinned BearSSL dependency and verify archive before extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          curl --fail --location --retry 3 --max-time 120 https://bearssl.org/bearssl-0.6.tar.gz -o artifacts/bearssl-0.6.tar.gz
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          path = Path('artifacts/bearssl-0.6.tar.gz')
+          if hashlib.sha256(path.read_bytes()).hexdigest() != '6705bba1714961b41a728dfc5debbe348d2966c117649392f8c8139efc83ff14':
+              raise ValueError('BearSSL archive hash mismatch')
+          PY
+          tar -xzf artifacts/bearssl-0.6.tar.gz -C artifacts
+      - name: Build actual XNU with bootstrap provider included
+        env:
+          RC_ProjectName: xnu
+          SDKROOT: iphoneos
+          MACOSX_DEPLOYMENT_TARGET: ""
+          NONAPPLE_BOOT: ${{ inputs.approve_nonapple_boot }}
+          IRQ_TIMER: ${{ inputs.approve_irq_timer }}
+          BOOT_CHECKPOINTS: ${{ inputs.approve_boot_checkpoints }}
+          MAPPED_CHECKPOINT: ${{ inputs.approve_mapped_checkpoint }}
+          PLATFORM_EXPERT: ${{ inputs.approve_platform_expert }}
+          PTHREAD_PROVIDER: ${{ inputs.approve_pthread }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ACTION_ENV_STRICT=0
+          log_file="$RUNNER_TEMP/mido-bootstrap-build.log"
+          trap 'mkdir -p artifacts/mido-bootstrap-kernel; cp "$log_file" artifacts/mido-bootstrap-kernel/build-full.log' EXIT
+          extra_options=()
+          if [ "$PTHREAD_PROVIDER" = true ]; then
+            extra_options+=(--experimental-pthread)
+          fi
+          if [ "$NONAPPLE_BOOT" = true ]; then
+            extra_options+=(--mido-no-image4-boot)
+          fi
+          if [ "$IRQ_TIMER" = true ]; then
+            extra_options+=(--experimental-irq-timer)
+          fi
+          if [ "$BOOT_CHECKPOINTS" = true ]; then
+            extra_options+=(--experimental-boot-checkpoints)
+          fi
+          if [ "$MAPPED_CHECKPOINT" = true ]; then
+            extra_options+=(--experimental-mapped-checkpoint)
+          fi
+          if [ "$PLATFORM_EXPERT" = true ]; then
+            extra_options+=(--experimental-platform-expert)
+          fi
+          python3 -u tools/check_xnu_build.py \
+            --sdk iphoneos --output-directory artifacts/mido-bootstrap-kernel \
+            --attempt-kernel --reviewed-rpc --experimental-boot-crypto "${extra_options[@]}" 2>&1 | tee "$log_file"
+      - name: Preserve kernel and diagnostics without boot approval
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mido-bootstrap-kernel
+          retention-days: 3
+          if-no-files-found: warn
+          path: |
+            artifacts/mido-bootstrap-kernel/*.log
+            artifacts/mido-bootstrap-kernel/*report.json
+            artifacts/mido-bootstrap-kernel/*.development.mido
+            artifacts/mido-bootstrap-kernel/*.development.mido.unstripped
+            artifacts/mido-bootstrap-kernel/source/osfmk/kern/mido_crypto/LICENSE.txt

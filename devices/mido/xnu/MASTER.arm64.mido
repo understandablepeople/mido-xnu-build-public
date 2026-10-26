@@ -1,0 +1,18 @@
+# MIDO_MACH = [ arm64 mach config_embedded config_nomonitors xsmall msgb_small config_requires_u32_munging ]
+# MIDO_RUNTIME = [ mach_bsd psynch inet iokit iokitcpp libkerncpp config_blocks zlib crypto_sha2 ]
+# MIDO_SCHED = [ config_sched_traditional config_sched_multiq config_sched_deferred_ast ]
+# MIDO_FILESYSTEM = [ devfs fifo namedstreams config_fse ]
+# MIDO_BSD_DEPENDENCIES = [ memorystatus jetsam config_macf vm_pressure_events config_coalitions importance_inheritance config_iosched ]
+# MIDO_NETWORK_DEPENDENCIES = [ necp multipath mptcp traffic_mgt skywalk config_nexus_user_pipe config_nexus_kernel_pipe config_nexus_monitor config_nexus_flowswitch config_nexus_netif ipsec pf content_filter ]
+# MIDO_LINK_DEPENDENCIES = [ crypto config_atm config_telemetry config_proc_uuid_policy config_coredump mach_kdp kdp_interactive_debugging config_dtrace iotracking config_xnupost ]
+# MIDO_ARM_SOURCES = [ nos_arm_pmap nos_arm_asm config_pmap_ppl ]
+# MIDO_BASE = [ MIDO_MACH MIDO_RUNTIME MIDO_SCHED MIDO_FILESYSTEM MIDO_ARM_SOURCES MIDO_BSD_DEPENDENCIES MIDO_NETWORK_DEPENDENCIES MIDO_LINK_DEPENDENCIES ]
+# DEVELOPMENT = [ MIDO_BASE development mach_assert ]
+# DEBUG = [ MIDO_BASE debug mach_assert ]
+
+machine "arm64" # <arm64>
+makeoptions OSFMK_MACHINE = "arm64" # <mach>
+options CONFIG_VNODES=1024 # <xsmall>
+options CONFIG_MACH_APPROXIMATE_TIME
+pseudo-device mido_no_amcc
+pseudo-device mido_runtime

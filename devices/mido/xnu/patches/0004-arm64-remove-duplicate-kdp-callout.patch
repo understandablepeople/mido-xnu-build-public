@@ -1,0 +1,14 @@
+diff --git a/osfmk/arm64/loose_ends.c b/osfmk/arm64/loose_ends.c
+--- a/osfmk/arm64/loose_ends.c
++++ b/osfmk/arm64/loose_ends.c
+@@ -783,10 +783,2 @@
+ 
+-#if !MACH_KDP
+-void
+-kdp_register_callout(kdp_callout_fn_t fn, void *arg)
+-{
+-#pragma unused(fn,arg)
+-}
+-#endif
+-
+ /*
