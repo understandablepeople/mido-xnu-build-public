@@ -118,3 +118,28 @@ def executable_plan(kernel):
     if struct.unpack_from("<I", kernel, segment["fileoff"] + block - segment["vmaddr"])[0] != 0xf9000388:
         raise ValueError("Reviewed executable block store differs")
     return dict(zip(EXECUTABLE_CHECKPOINTS, (sites[0][0], block, block + 4, sites[1][0] + 4, sites[2][0] + 4)))
+
+
+def remaining_plan(kernel):
+    from tools.mido_vm_remaining_reference import REMAINING_CALLS, REMAINING_STAGES
+
+    executable_plan(kernel)
+    symbols = macho_symbols(kernel)
+    start = symbols["_arm_vm_prot_init"]
+    segments = inspect(kernel)["segments"]
+    for displacement, name in REMAINING_CALLS:
+        address = start + displacement
+        segment = next(segment for segment in segments
+                       if segment["vmaddr"] <= address < segment["vmaddr"] + segment["filesize"])
+        word = struct.unpack_from("<I", kernel, segment["fileoff"] + address - segment["vmaddr"])[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or address + immediate * 4 != symbols["_arm_vm_page_granular_prot"]:
+            raise ValueError(f"Reviewed remaining mapping call differs: {name}")
+    bootdata = next(segment for segment in segments if segment["name"] == "__BOOTDATA")
+    for name, displacement in (("_intstack_low_guard", 0x34000), ("_intstack_high_guard", 0x3c000),
+                               ("_excepstack_high_guard", 0x44000)):
+        if symbols[name] != bootdata["vmaddr"] + displacement:
+            raise ValueError("Reviewed stack guard address differs")
+    return {name: start + displacement for name, (displacement, _) in REMAINING_STAGES.items()}

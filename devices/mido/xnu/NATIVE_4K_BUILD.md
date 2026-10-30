@@ -205,3 +205,42 @@ selecting its reference; both layouts have explicit model-checker acceptance
 tests, which are not mislabeled as original kernel execution. This prefix
 still stops before remaining boot/guard/
 linkedit mappings, active table replacement, IRQs, storage and userspace.
+
+The next handset photograph confirms XNU VM EXEC OK, FAIL=0 and STOP BEFORE
+MORE MAPS for RAM image SHA-256
+08cd241e862e364942b71a39275ff862dceafa0c8986459d2602c4f78adad423.
+This is a bounded inactive-table construction test, not instruction fetch
+through the new tables or a complete XNU boot.
+
+## Remaining inactive mappings
+
+The next local batch passes 28 independently stopped checkpoints. The eight
+new boundaries cover empty HIB data, BOOTDATA, all three stack guard regions,
+KLD, KLDDATA, LINKEDIT, LASTDATA_CONST and the final empty-segment requests.
+The pinned binary requests 16-KiB guard regions even with native 4-KiB pages:
+all four pages of each region must override BOOTDATA's writable mapping with
+read-only/execute-never descriptors. The model checks those overrides rather
+than silently assuming a one-page guard. Empty requests allocate nothing.
+
+The complete inactive reference uses eight or nine sequential allocation
+pages (32 or 36 KiB), depending on the original randomized initial L2 count.
+Both geometries occur in the batch. Every word, including zero entries, is
+checked. All named stages retain the original active bootstrap table bytes
+and reject TTBR writes. The final stop is at 0xfffffff007444c3c, before
+kernelcache bounds publication, active-table replacement or a return from
+arm_vm_prot_init.
+
+The prepared RAM carrier has SHA-256
+68b33859ff8a7216d6246cffa7a0dfb5abe45b36e6573d48c512996e2c07f14e.
+Its complete local execution passes the original-C path, cache-aware physical
+return and framebuffer checks; 76 compiled corruption rejections include
+each page of every stack guard. Seven preparation cases and two explicit
+model-only geometry cases also pass. The local regression suite passes
+100 tests; 34 focused tests also pass in this public checkout. These are
+offline results, not hardware success for the new image. A new handset
+photograph is required before recording that stage as hardware-confirmed.
+
+No IRQs, storage, userspace or SpringBoard are exercised. The observer's
+safe executable mapping must still be established before any future test
+that activates the new translation tables. No installation-ready iOS image
+is claimed, and no partition writes are authorized by these diagnostics.
