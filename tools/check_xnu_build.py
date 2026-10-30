@@ -599,7 +599,8 @@ def save_kernel_artifact(build, output, sdk):
 def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, experimental_boot_crypto=False,
           mido_no_image4_boot=False, experimental_irq_timer=False, experimental_boot_checkpoints=False,
           experimental_mapped_checkpoint=False, experimental_platform_expert=False, experimental_pthread=False,
-          experimental_memory_root=False, experimental_mockfs=False, experimental_entitlement_guard=False):
+          experimental_memory_root=False, experimental_mockfs=False, experimental_entitlement_guard=False,
+          experimental_native_4k=False):
     if experimental_entitlement_guard and not experimental_mockfs:
         raise ValueError("entitlement guard requires explicit mockfs diagnostics")
     if experimental_mockfs and not experimental_memory_root:
@@ -643,6 +644,12 @@ def check(output, sdk, archive=None, attempt_kernel=False, reviewed_rpc=False, e
             raise ValueError("host setup did not pass; inspect setup-report.json")
         if attempt_kernel:
             report["frontend_compatibility"] = prepare_frontend(source)
+        if experimental_native_4k:
+            try:
+                from tools.stage_mido_native_4k import stage_native_4k
+            except ModuleNotFoundError:
+                from stage_mido_native_4k import stage_native_4k
+            report["experimental_native_4k"] = stage_native_4k(source)
         if experimental_memory_root:
             try:
                 from tools.stage_mido_memory_root import stage_memory_root
@@ -763,6 +770,8 @@ def main():
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--attempt-kernel", action="store_true")
     parser.add_argument("--reviewed-rpc", action="store_true")
+    parser.add_argument("--experimental-native-4k", action="store_true",
+                        help="Opt in to native 4KiB user page policy; not complete iOS support")
     parser.add_argument("--experimental-boot-crypto", action="store_true",
                         help="Opt in to incomplete, fail-closed bootstrap crypto; not boot approval")
     parser.add_argument("--mido-no-image4-boot", action="store_true",
@@ -791,7 +800,8 @@ def main():
                    experimental_pthread=args.experimental_pthread,
                    experimental_memory_root=args.experimental_memory_root,
                    experimental_mockfs=args.experimental_mockfs,
-                   experimental_entitlement_guard=args.experimental_entitlement_guard)
+                   experimental_entitlement_guard=args.experimental_entitlement_guard,
+                   experimental_native_4k=args.experimental_native_4k)
     print(json.dumps(report, indent=2))
     for name in ("setup", "exporthdrs", "configuration", "kernel-build"):
         log = args.output_directory / f"{name}.log"
