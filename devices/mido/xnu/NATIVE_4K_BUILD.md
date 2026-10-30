@@ -26,3 +26,33 @@ Its combined staging regression suite has 23 passing tests.
 Still unverified: hardware execution of this binary, full VM/scheduler startup,
 16-KiB code signatures on 4-KiB VM, dyld shared cache and actual Apple userspace.
 No phone partition was written and no RAM boot was attempted for this build.
+
+## Full-provider build and offline binary audit
+
+Run 41095763854 (commit fa4b9f0) also succeeded, with all ten diagnostic
+workflow inputs enabled. Its report records kernel_built=true,
+pipeline_passed=true and blockers=[]. The retained mach.development.mido is
+15,366,760 bytes, SHA-256
+9b67c800aaf870ab969fab329f0080bdb89eebc0635d199d14a693853e235187.
+
+tools/audit_mido_native4k_binary.py executes this exact binary under Unicorn
+2.1.4 Cortex-A53 emulation, from after the framebuffer argument checkpoint
+until before common_start. It does not execute the initial framebuffer writes,
+enable the MMU or construct a bootable phone image. The old v89 profile is
+unchanged and must not be used with this binary.
+
+Three cases passed against independent table bytes: a 32-MiB diagnostic arena,
+a synthetic 3-GiB extent crossing L2 boundaries, and synthetic 8-GiB pool
+exhaustion. The latter stops at the guard loop before writing outside the pool.
+All 32 MiB of execution backing were compared, with the 64-KiB table pool
+prefilled nonzero to verify complete clearing. Larger synthetic extents are
+table-geometry tests, NOT approved physical memory maps.
+
+Reproduce from the repository root with Unicorn installed:
+
+    python -m tools.audit_mido_native4k_binary PATH_TO_KERNEL --output NEW_REPORT.json
+
+Set MIDO_NATIVE4K_KERNEL to the same artifact to enable the binary integration
+case in tests.test_mido_native4k_binary. Next hardware work still requires a
+new reviewed MMU/observer/loading profile; these results do not prove VM,
+userspace, dyld or SpringBoard startup.
