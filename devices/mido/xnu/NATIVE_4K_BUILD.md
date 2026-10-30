@@ -56,3 +56,24 @@ Set MIDO_NATIVE4K_KERNEL to the same artifact to enable the binary integration
 case in tests.test_mido_native4k_binary. Next hardware work still requires a
 new reviewed MMU/observer/loading profile; these results do not prove VM,
 userspace, dyld or SpringBoard startup.
+
+## Native-4K MMU and translated reads
+
+The separate tools/audit_mido_native4k_mmu.py audit also passed five scenarios
+with Unicorn 2.1.4 on the Cortex-A53 model: normal startup, missing high root,
+missing low root, missing argument block and missing stack block. The normal
+path executes native startup through MMU enable, branches at arm_init into a
+92-byte store-free observer, reads actual high-virtual argument and stack
+memory, then returns with MMU/caches disabled. Every missing mapping stops at
+its intended instruction, not just an arbitrary later failure.
+
+This is an offline synthetic argument fixture. The original arm_init body is
+not executed in this audit, and modeled higher exception-level controls and
+SCTLR bit 23 are not evidence about the handset firmware. VBAR is redirected
+to the checked halt-only diagnostic vector page. It is not an iOS boot test.
+
+    python -m tools.audit_mido_native4k_mmu PATH_TO_KERNEL --toolchain NDK_BIN --output-directory NEW_DIR
+
+The observer source is included; its compiled 92-byte payload must match the
+reviewed SHA-256 before use. Set MIDO_NATIVE4K_OBSERVER to observer.bin alongside
+MIDO_NATIVE4K_KERNEL for the corresponding regression integration cases.
