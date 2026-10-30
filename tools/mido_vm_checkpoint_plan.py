@@ -143,3 +143,25 @@ def remaining_plan(kernel):
         if symbols[name] != bootdata["vmaddr"] + displacement:
             raise ValueError("Reviewed stack guard address differs")
     return {name: start + displacement for name, (displacement, _) in REMAINING_STAGES.items()}
+
+
+def postmap_plan(kernel):
+    from tools.mido_vm_postmap_reference import POSTMAP_STAGES
+
+    remaining_plan(kernel)
+    symbols = macho_symbols(kernel)
+    start = symbols["_arm_vm_init"]
+    segment = next(segment for segment in inspect(kernel)["segments"]
+                   if segment["vmaddr"] <= start and start + 0x12d8 <= segment["vmaddr"] + segment["filesize"])
+    offset = segment["fileoff"] + start - segment["vmaddr"]
+    for displacement, name in ((0x1240, "_arm_vm_prot_init"), (0x12c4, "_bzero")):
+        word = struct.unpack_from("<I", kernel, offset + displacement)[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or start + displacement + immediate * 4 != symbols[name]:
+            raise ValueError("Reviewed post-mapping call differs")
+    for displacement, expected in ((0x12c0, 0xf90002a8), (0x12d4, 0xd5382048)):
+        if struct.unpack_from("<I", kernel, offset + displacement)[0] != expected:
+            raise ValueError("Reviewed low-global link or TCR boundary differs")
+    return {name: start + displacement for name, displacement in POSTMAP_STAGES.items()}

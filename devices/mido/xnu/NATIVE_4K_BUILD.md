@@ -244,3 +244,47 @@ No IRQs, storage, userspace or SpringBoard are exercised. The observer's
 safe executable mapping must still be established before any future test
 that activates the new translation tables. No installation-ready iOS image
 is claimed, and no partition writes are authorized by these diagnostics.
+
+The next handset photograph confirms XNU VM FULL MAP OK, zero FAIL and
+STOP BEFORE TTBR MAP for RAM image SHA-256
+68b33859ff8a7216d6246cffa7a0dfb5abe45b36e6573d48c512996e2c07f14e.
+This confirms the bounded remaining mappings on hardware, not a TTBR switch.
+
+## Low Globals And Translation Preflight
+
+The next offline batch passes 32 separately logged original-code checkpoints,
+including return from arm_vm_prot_init, the low-global descriptor store and
+the subsequent L3 clear. Its independent reference checks nine or ten pages
+(36 or 40 KiB), depending on the original initial L2 geometry. Both initial
+geometries occur in the batch. The exact low-global descriptor has table
+PXN/XN restrictions and points to the next sequential allocation; its new
+L3 is entirely zero after the original bzero call. Active bootstrap tables
+remain unchanged, and no TCR or TTBR change is permitted by these cases.
+
+An exploratory attempt to stop immediately before the later TCR read reached
+an intervening original dynamic-table allocation branch instead. That failed
+report is retained. The branch is not patched or bypassed: the new reviewed
+stop is 0xfffffff007446918, before dynamic-table setup. The first batch also
+exposed a checker bookkeeping error at the before-clear boundary: its code
+hook had already registered the allocation. Removing the erroneous extra
+count, not relaxing byte equality, gives the passing second batch.
+
+A separate read-only walker checks 36 expected outcomes across two model
+snapshots: continuation code, exception vector, live stack, every page of
+each 16-KiB guard, the return observer, original boot_args alias and low
+globals. It enforces the pinned 4-KiB/38-bit TTBR1 geometry and hierarchical
+permissions. The existing code, vectors and live stack have the expected
+permissions; the observer and boot_args alias are absent in this pre-physmap
+snapshot, and low globals still have invalid leaf entries. Those expected
+absences are test outcomes, NOT a passed activation gate. The report keeps
+immediate_switch_safe=false and records the unfinished dynamic-table and
+physmap work. These model snapshots are not original-kernel execution proof.
+
+The new RAM image SHA-256 is
+2b08a634caef9abb56189e453b08a353e3db5119a3d1b79945cdf90fe1aefbef.
+Its full offline carrier execution passes original C, physical return,
+framebuffer output, 82 compiled corruption rejections, seven preparation
+cases and two explicitly model-only geometry cases. The regression suite
+passes 109 tests, with 43 focused tests passing in this public checkout.
+This image stops before dynamic mappings; hardware confirmation requires
+a new photo. It does not activate the new tables or boot iOS.
