@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 START_SHA256 = "0c1ee26454db866e13ebfc183cd213c29c65d6742ad4eff3b01886ff9d1c98c9"
+NATIVE_4K_START_SHA256 = "0929bbbba3149cdf6ae3776adf2fec5e22316ef5a3ab475f528d68054092f425"
 ENTRY = b"LEXT(start_first_cpu)\n"
 ARGS = b"\tldr\t\tx26, [x20, BA_BOOT_FLAGS]\t\t\t// Get the kernel boot flags\n"
 MACRO = "devices/mido/xnu/probe/boot_checkpoints.inc"
@@ -19,7 +20,8 @@ def stage_boot_checkpoints(source, workspace=None):
         if path.is_symlink() or not path.resolve().is_relative_to(source):
             raise ValueError("escaped boot checkpoint staging path")
     before = startup.read_bytes().replace(b"\r\n", b"\n")
-    if hashlib.sha256(before).hexdigest() != START_SHA256:
+    before_sha256 = hashlib.sha256(before).hexdigest()
+    if before_sha256 not in (START_SHA256, NATIVE_4K_START_SHA256):
         raise ValueError("unexpected prepared startup source for boot checkpoints")
     configuration.read_bytes()
     macro = (workspace / MACRO).read_bytes().replace(b"\r\n", b"\n")
@@ -36,7 +38,7 @@ def stage_boot_checkpoints(source, workspace=None):
     after = prefix + definitions + ENTRY + first + cold_start.replace(ARGS, ARGS + second)
     startup.write_bytes(after)
     return dict(
-        startup_before_sha256=START_SHA256, startup_sha256=hashlib.sha256(after).hexdigest(),
+        startup_before_sha256=before_sha256, startup_sha256=hashlib.sha256(after).hexdigest(),
         macro_sha256=hashlib.sha256(macro).hexdigest(),
         framebuffer=dict(base=0x90001000, stride=3240, bytes_per_pixel=3),
         marks=[dict(symbol="mido_checkpoint_entry", row=560, meaning="start_first_cpu entered"),

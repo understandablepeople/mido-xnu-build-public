@@ -47,6 +47,18 @@ class BootCheckpointStagingTests(unittest.TestCase):
                 stage_boot_checkpoints(source, workspace)
             self.assertEqual(startup.read_bytes(), before)
 
+    def test_reviewed_native_4k_profile_preserves_bootstrap_guard(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, workspace, startup, before = self.populate(Path(temporary))
+            before += b"b.hs Lmido_bootstrap_tables_exhausted\n"
+            startup.write_bytes(before)
+            expected = hashlib.sha256(before).hexdigest()
+            with patch("tools.stage_mido_boot_checkpoints.NATIVE_4K_START_SHA256", expected):
+                result = stage_boot_checkpoints(source, workspace)
+            self.assertEqual(result["startup_before_sha256"], expected)
+            self.assertIn(b"b.hs Lmido_bootstrap_tables_exhausted", startup.read_bytes())
+            self.assertEqual(startup.read_bytes().count(b"MIDO_EARLY_MARK 584"), 1)
+
     def test_warm_boot_argument_load_is_not_instrumented(self):
         with tempfile.TemporaryDirectory() as temporary:
             source, workspace, startup, before = self.populate(Path(temporary))
