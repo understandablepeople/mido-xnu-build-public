@@ -105,3 +105,25 @@ the verified temporary lk2nd 23.1 loader. No flash/erase command was executed.
 The hardware early-C result is NOT yet confirmed: it requires a photograph of
 the handset diagnostic display. This is deliberately halted before VM init,
 not a full XNU, dyld, SpringBoard or iOS boot.
+
+## Hardware observation and batched VM investigation
+
+The subsequent user photograph shows XNU EARLY C OK, FAIL=0 and STOP BEFORE
+VM INIT for the native-4K RAM diagnostic. This is manually interpreted display
+evidence for the bounded early-C stage, not evidence of complete VM startup or
+physical cache coherence. The local observation record binds the photograph
+hash to the recorded RAM session; no image was flashed to a partition.
+
+Four independent offline VM checkpoints are now derived from real BL call
+sites by tools/mido_vm_checkpoint_plan.py: geometry before early_random,
+return from early_random, first bzero call and return from that bzero.
+The unchanged no-seed fixture correctly panics in Apple's bootseed check.
+An explicit offline-only 64-byte test seed lets all four checkpoints pass.
+Seed zeroing is checked within its exact payload range; the first allocated
+4-KiB page is poisoned before execution and checked completely zero afterward.
+Only zero writes in that exact allocation page are allowed, not arbitrary
+writes elsewhere in the arena. No kernel PRNG or allocator was stubbed.
+
+This establishes bounded offline progress into arm_vm_init, not completion of
+arm_vm_init, pmap_bootstrap, translation-table replacement or userspace startup.
+Larger stages require separate allocator/observer lifetime and mapping review.
