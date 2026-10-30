@@ -10,6 +10,8 @@ from tools.mido_native4k_profile import KERNEL_SHA256
 CHECKPOINTS = ("vm-geometry", "vm-entropy-return", "vm-first-clear", "vm-first-clear-return")
 TABLE_CHECKPOINTS = ("vm-second-clear-return", "vm-first-l2-return", "vm-l2-pages-ready")
 SEGMENT_CHECKPOINTS = ("vm-segments-discovered", "vm-before-protection")
+PROTECTION_CHECKPOINTS = ("vm-memory-map-lookup", "vm-before-text-map", "vm-before-l3-clear",
+                          "vm-after-l3-clear", "vm-text-mapped", "vm-data-const-mapped")
 
 
 def plan(kernel):
@@ -71,3 +73,24 @@ def segment_plan(kernel):
         if word & 0xfc000000 != 0x94000000 or start + displacement + immediate * 4 != symbols[name]:
             raise ValueError("Reviewed VM segment boundary call differs")
     return dict(zip(SEGMENT_CHECKPOINTS, (start + displacement for displacement, _ in sites)))
+
+
+def protection_plan(kernel):
+    segment_plan(kernel)
+    symbols = macho_symbols(kernel)
+    sites = ((symbols["_arm_vm_prot_init"] + 0x134, "_SecureDTLookupEntry", 4),
+             (symbols["_arm_vm_prot_init"] + 0x404, "_arm_vm_page_granular_prot", 0),
+             (symbols["_arm_vm_page_granular_helper"] + 0xf0, "_bzero", 0),
+             (symbols["_arm_vm_page_granular_helper"] + 0xf0, "_bzero", 4),
+             (symbols["_arm_vm_prot_init"] + 0x404, "_arm_vm_page_granular_prot", 4),
+             (symbols["_arm_vm_prot_init"] + 0x42c, "_arm_vm_page_granular_prot", 4))
+    for address, name, _ in sites:
+        segment = next(segment for segment in inspect(kernel)["segments"]
+                       if segment["vmaddr"] <= address < segment["vmaddr"] + segment["filesize"])
+        word = struct.unpack_from("<I", kernel, segment["fileoff"] + address - segment["vmaddr"])[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or address + immediate * 4 != symbols[name]:
+            raise ValueError("Reviewed VM protection boundary call differs")
+    return dict(zip(PROTECTION_CHECKPOINTS, (address + delta for address, _, delta in sites)))

@@ -154,3 +154,19 @@ The same three initial table pages still match the exact 12-KiB reference.
 No active translation-table replacement or hardware segment-stage success is
 claimed. The two new boundaries are pinned to the original vm_set_page_size
 and arm_vm_prot_init BL instructions in the SHA-verified kernel.
+
+The next photograph confirms XNU VM SEG OK, zero failure mask and STOP BEFORE
+VM PROT for RAM image SHA-256
+0233f036f020fd5f0a6e1cc0cca37e395d3fa89cb26f5128c480d1409ea65ad1.
+It confirms the bounded segment stage only, not active table replacement.
+
+The offline batch now passes fifteen independently stopped cases, adding
+memory-map lookup, the first L3 clear boundaries, TEXT mapping and DATA_CONST
+mapping. DATA_CONST crosses a 2-MiB boundary, requiring a second L3 page:
+five sequential pages total, compared against an independent 20-KiB reference.
+The reference checks physical destinations, L1/L2 links, read-only versus
+writable permissions, execute-never and complete 64-KiB contiguous-hint groups.
+Unmapped entries remain zero. Writes are accepted only at reviewed store sites
+with exact expected addresses and values; the original active bootstrap tables
+must remain byte-for-byte unchanged and no TTBR writes are allowed.
+This prefix stops before executable-segment mappings, not after VM startup.
