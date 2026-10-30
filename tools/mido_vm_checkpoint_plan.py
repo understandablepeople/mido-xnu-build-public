@@ -8,6 +8,7 @@ from tools.mido_macho_symbols import macho_symbols
 from tools.mido_native4k_profile import KERNEL_SHA256
 
 CHECKPOINTS = ("vm-geometry", "vm-entropy-return", "vm-first-clear", "vm-first-clear-return")
+TABLE_CHECKPOINTS = ("vm-second-clear-return", "vm-first-l2-return", "vm-l2-pages-ready")
 
 
 def plan(kernel):
@@ -32,3 +33,22 @@ def plan(kernel):
     if len(random_calls) != 1 or not clears or random_calls[0] >= clears[0]:
         raise ValueError("VM startup call ordering differs")
     return dict(zip(CHECKPOINTS, (random_calls[0], random_calls[0] + 4, clears[0], clears[0] + 4)))
+
+
+def table_plan(kernel):
+    baseline = plan(kernel)
+    symbols = macho_symbols(kernel)
+    start = symbols["_arm_vm_init"]
+    segment = next(segment for segment in inspect(kernel)["segments"]
+                   if segment["vmaddr"] <= start and start + 1024 <= segment["vmaddr"] + segment["filesize"])
+    offset = segment["fileoff"] + start - segment["vmaddr"]
+    for displacement in (0x208, 0x274, 0x308):
+        word = struct.unpack_from("<I", kernel, offset + displacement)[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or start + displacement + immediate * 4 != symbols["_bzero"]:
+            raise ValueError("Reviewed VM table allocation/clear call differs")
+    if baseline["vm-first-clear"] != start + 0x208:
+        raise ValueError("First-page checkpoint no longer agrees")
+    return dict(zip(TABLE_CHECKPOINTS, (start + 0x278, start + 0x30c, start + 0x368)))

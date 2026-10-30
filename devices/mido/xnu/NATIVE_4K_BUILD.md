@@ -127,3 +127,17 @@ writes elsewhere in the arena. No kernel PRNG or allocator was stubbed.
 This establishes bounded offline progress into arm_vm_init, not completion of
 arm_vm_init, pmap_bootstrap, translation-table replacement or userspace startup.
 Larger stages require separate allocator/observer lifetime and mapping review.
+
+The next user photograph confirms XNU VM PAGE OK, FAIL=0 and STOP AFTER FIRST
+PAGE on the handset, for RAM image SHA-256
+f42fffae7cd061daa74508abbb05a227caaef061e6a6d8df358a6a8bf5ba580b.
+This extends the hardware observation into the first original VM allocation;
+it does not confirm completion of VM init or a working iOS userspace.
+
+The offline batch now also passes second-page clearing, first L2 return and
+completion of the initial L2-page loop: seven independent checkpoints total.
+At that boundary exactly three sequential pages are compared against an
+independent 12-KiB reference: invalid page zero, L1 page with one precise
+APTable descriptor (0x2000000012403003), and empty L2 page. The active bootstrap
+translation tables are not replaced by this test. The RAM observer remains
+below topOfKernelData; allocation writes are confined to reviewed pages above it.
