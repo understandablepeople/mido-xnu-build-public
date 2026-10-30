@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import unittest
 
-from tools.mido_vm_checkpoint_plan import CHECKPOINTS, TABLE_CHECKPOINTS, plan, table_plan
+from tools.mido_vm_checkpoint_plan import CHECKPOINTS, TABLE_CHECKPOINTS, SEGMENT_CHECKPOINTS, plan, table_plan, segment_plan
 
 
 class VMCheckpointPlanTests(unittest.TestCase):
@@ -23,3 +23,11 @@ class VMCheckpointPlanTests(unittest.TestCase):
         self.assertEqual(tables["vm-second-clear-return"], 0xfffffff0074458c8)
         self.assertEqual(tables["vm-first-l2-return"], 0xfffffff00744595c)
         self.assertEqual(tables["vm-l2-pages-ready"], 0xfffffff0074459b8)
+        segments = segment_plan(Path(os.environ["MIDO_NATIVE4K_KERNEL"]).read_bytes())
+        self.assertEqual(tuple(segments), SEGMENT_CHECKPOINTS)
+        self.assertEqual(segments["vm-segments-discovered"], 0xfffffff0074467c0)
+        self.assertEqual(segments["vm-before-protection"], 0xfffffff007446890)
+
+    def test_segment_plan_rejects_unknown_binary(self):
+        with self.assertRaisesRegex(ValueError, "exact reviewed"):
+            segment_plan(b"unknown")

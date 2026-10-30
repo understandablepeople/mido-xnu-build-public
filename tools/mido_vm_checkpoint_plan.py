@@ -9,6 +9,7 @@ from tools.mido_native4k_profile import KERNEL_SHA256
 
 CHECKPOINTS = ("vm-geometry", "vm-entropy-return", "vm-first-clear", "vm-first-clear-return")
 TABLE_CHECKPOINTS = ("vm-second-clear-return", "vm-first-l2-return", "vm-l2-pages-ready")
+SEGMENT_CHECKPOINTS = ("vm-segments-discovered", "vm-before-protection")
 
 
 def plan(kernel):
@@ -52,3 +53,21 @@ def table_plan(kernel):
     if baseline["vm-first-clear"] != start + 0x208:
         raise ValueError("First-page checkpoint no longer agrees")
     return dict(zip(TABLE_CHECKPOINTS, (start + 0x278, start + 0x30c, start + 0x368)))
+
+
+def segment_plan(kernel):
+    table_plan(kernel)
+    symbols = macho_symbols(kernel)
+    start = symbols["_arm_vm_init"]
+    segment = next(segment for segment in inspect(kernel)["segments"]
+                   if segment["vmaddr"] <= start and start + 0x1244 <= segment["vmaddr"] + segment["filesize"])
+    offset = segment["fileoff"] + start - segment["vmaddr"]
+    sites = ((0x1170, "_vm_set_page_size"), (0x1240, "_arm_vm_prot_init"))
+    for displacement, name in sites:
+        word = struct.unpack_from("<I", kernel, offset + displacement)[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or start + displacement + immediate * 4 != symbols[name]:
+            raise ValueError("Reviewed VM segment boundary call differs")
+    return dict(zip(SEGMENT_CHECKPOINTS, (start + displacement for displacement, _ in sites)))

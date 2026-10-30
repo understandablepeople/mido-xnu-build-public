@@ -141,3 +141,16 @@ independent 12-KiB reference: invalid page zero, L1 page with one precise
 APTable descriptor (0x2000000012403003), and empty L2 page. The active bootstrap
 translation tables are not replaced by this test. The RAM observer remains
 below topOfKernelData; allocation writes are confined to reviewed pages above it.
+
+The user photograph also confirms XNU VM TABLE OK, FAIL=0 and STOP BEFORE VM
+REMAP on hardware for RAM image SHA-256
+7f6e1c2a049c4a115443670c20facee07d8e73c2c22c5d337fb6154592b1ca81.
+This is an intentional diagnostic halt, not full VM startup or an iOS boot.
+
+The next offline batch passes nine checkpoints, including Mach-O segment
+discovery and page-size setup, stopping before arm_vm_prot_init. Twelve segment
+base/size globals are compared to an independently parsed Mach-O reference.
+The same three initial table pages still match the exact 12-KiB reference.
+No active translation-table replacement or hardware segment-stage success is
+claimed. The two new boundaries are pinned to the original vm_set_page_size
+and arm_vm_prot_init BL instructions in the SHA-verified kernel.
