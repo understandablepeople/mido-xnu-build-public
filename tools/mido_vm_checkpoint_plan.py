@@ -12,6 +12,8 @@ TABLE_CHECKPOINTS = ("vm-second-clear-return", "vm-first-l2-return", "vm-l2-page
 SEGMENT_CHECKPOINTS = ("vm-segments-discovered", "vm-before-protection")
 PROTECTION_CHECKPOINTS = ("vm-memory-map-lookup", "vm-before-text-map", "vm-before-l3-clear",
                           "vm-after-l3-clear", "vm-text-mapped", "vm-data-const-mapped")
+EXECUTABLE_CHECKPOINTS = ("vm-before-executable-map", "vm-before-executable-block", "vm-first-executable-block",
+                          "vm-executable-mapped", "vm-data-mapped")
 
 
 def plan(kernel):
@@ -94,3 +96,25 @@ def protection_plan(kernel):
         if word & 0xfc000000 != 0x94000000 or address + immediate * 4 != symbols[name]:
             raise ValueError("Reviewed VM protection boundary call differs")
     return dict(zip(PROTECTION_CHECKPOINTS, (address + delta for address, _, delta in sites)))
+
+
+def executable_plan(kernel):
+    protection_plan(kernel)
+    symbols = macho_symbols(kernel)
+    start = symbols["_arm_vm_prot_init"]
+    sites = ((start + 0x454, 0), (start + 0x454, 4), (start + 0x47c, 4))
+    for address, _ in sites:
+        segment = next(segment for segment in inspect(kernel)["segments"]
+                       if segment["vmaddr"] <= address < segment["vmaddr"] + segment["filesize"])
+        word = struct.unpack_from("<I", kernel, segment["fileoff"] + address - segment["vmaddr"])[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or address + immediate * 4 != symbols["_arm_vm_page_granular_prot"]:
+            raise ValueError("Reviewed executable mapping call differs")
+    block = symbols["_arm_vm_page_granular_prot"] + 0x200
+    segment = next(segment for segment in inspect(kernel)["segments"]
+                   if segment["vmaddr"] <= block < segment["vmaddr"] + segment["filesize"])
+    if struct.unpack_from("<I", kernel, segment["fileoff"] + block - segment["vmaddr"])[0] != 0xf9000388:
+        raise ValueError("Reviewed executable block store differs")
+    return dict(zip(EXECUTABLE_CHECKPOINTS, (sites[0][0], block, block + 4, sites[1][0] + 4, sites[2][0] + 4)))

@@ -170,3 +170,38 @@ Unmapped entries remain zero. Writes are accepted only at reviewed store sites
 with exact expected addresses and values; the original active bootstrap tables
 must remain byte-for-byte unchanged and no TTBR writes are allowed.
 This prefix stops before executable-segment mappings, not after VM startup.
+
+The following handset photograph shows XNU VM MAP OK, zero failure mask and
+STOP BEFORE EXEC MAP for RAM image SHA-256
+d7c7f4a5ea75c4e4570d2c4c086130366f211bf3cdb24405fcc9a9cdcd0ffd56.
+This confirms the bounded initial inactive mappings, not a TTBR switch.
+
+The next local batch adds five executable/DATA boundaries, twenty total:
+before TEXT_EXEC, before/after its first L2 block, after TEXT_EXEC and after
+DATA. Its independent reference covers three 2-MiB executable/read-only blocks,
+ragged executable L3 edges and writable/execute-never DATA. Seven allocation
+pages (28 KiB), or eight pages (32 KiB) when the original physmap random slide
+requires a second L2 root, are checked completely. Active bootstrap tables
+remain unchanged.
+New mappings are constructed but not activated or used for instruction fetch.
+
+Local cases now run in fresh worker processes, two concurrently, with one JSON
+and log per named boundary. Failed cases remain failures and the batch exits
+nonzero. Initial intermittent failures persisted in fresh processes: the cause
+was not emulator-instance sharing, but a legitimate second initial L2 page
+for some original physmap random slides. Earlier one-L2-only references
+incorrectly interpreted the shifted L3 allocation as an error. Failed reports
+are retained. Randomization is not disabled or replaced. Both layouts now
+derive from independently checked slide bounds, static-memory end and memory
+size; extra roots outside those two exact layouts remain rejected.
+
+The larger reference exceeded the diagnostic carrier's existing 64-KiB code
+envelope when stored verbatim. The limit remains enforced. Lossless arithmetic
+spans now encode the reference compactly; the compiled checker still compares
+every table word, including zero entries. Tests verify exact reconstruction,
+64-bit wraparound, sparse data and invalid-span rejection. No checksum replaces
+the exact comparison. The compiled checker also validates the geometry before
+selecting its reference; both layouts have explicit model-checker acceptance
+tests, which are not mislabeled as original kernel execution. This prefix
+still stops before remaining boot/guard/
+linkedit mappings, active table replacement, IRQs, storage and userspace.

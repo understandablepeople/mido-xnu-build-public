@@ -4,10 +4,14 @@ import struct
 
 
 class ProtectionReference:
-    def __init__(self, segments, virtual, physical, top):
+    def __init__(self, segments, virtual, physical, top, l2_count=1):
+        if l2_count not in (1, 2):
+            raise ValueError("Unreviewed initial L2 count")
         self.virtual = virtual
         self.physical = physical
         self.top = top
+        self.l2_count = l2_count
+        self.l3_base = top + (2 + l2_count)*4096
         self.segments = {segment["name"]: segment for segment in segments}
         self.request = None
 
@@ -32,13 +36,13 @@ class ProtectionReference:
                 if (address & 65535) != (physical & 65535):
                     raise ValueError("Contiguous hint VA/PA alignment differs")
                 descriptor |= 1 << 52
-            table = self.top + 12288 + ((address - self.virtual) >> 21) * 4096
+            table = self.l3_base + ((address - self.virtual) >> 21) * 4096
             descriptors[table + ((address >> 12) & 511) * 8] = descriptor
         return descriptors
 
     def link(self, index=0):
         slot = ((self.virtual >> 21) & 511) + index
-        return self.top + 8192 + slot * 8, (self.top + 12288 + index * 4096) | 3
+        return self.top + 8192 + slot * 8, (self.l3_base + index * 4096) | 3
 
     def accepts(self, address, length, value, pc, helper):
         if self.request is None or length != 8:
@@ -53,11 +57,13 @@ class ProtectionReference:
         count = 3 if checkpoint in ("vm-memory-map-lookup", "vm-before-text-map") else 4
         if checkpoint == "vm-data-const-mapped":
             count = 5
+        count += self.l2_count - 1
         pages = bytearray(count * 4096)
-        struct.pack_into("<Q", pages, 4096 + ((self.virtual >> 30) & 255) * 8,
-                         (self.top + 8192) | 0x2000000000000003)
+        for index in range(self.l2_count):
+            struct.pack_into("<Q", pages, 4096 + (((self.virtual >> 30) & 255) + index) * 8,
+                             (self.top + 8192 + index*4096) | 0x2000000000000003)
         if checkpoint == "vm-before-l3-clear":
-            pages[12288:] = bytes([165]) * 4096
+            pages[(2+self.l2_count)*4096:] = bytes([165]) * 4096
         if checkpoint in ("vm-text-mapped", "vm-data-const-mapped"):
             address, value = self.link()
             struct.pack_into("<Q", pages, address - self.top, value)
