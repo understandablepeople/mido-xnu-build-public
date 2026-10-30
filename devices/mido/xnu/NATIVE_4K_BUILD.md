@@ -77,3 +77,31 @@ to the checked halt-only diagnostic vector page. It is not an iOS boot test.
 The observer source is included; its compiled 92-byte payload must match the
 reviewed SHA-256 before use. Set MIDO_NATIVE4K_OBSERVER to observer.bin alongside
 MIDO_NATIVE4K_KERNEL for the corresponding regression integration cases.
+
+## Bounded native-4K loader profile and RAM test
+
+tools/mido_native4k_profile.py provides an exact-SHA profile separate from the
+previous v89 binary. It verifies the original prefix, table-builder and MMU
+instruction windows, derives current addresses, and supplies the complete
+sixteen-page expected table pool. The bounded 32-MiB geometry needs only four
+nonzero table pages; the profile emits a 2048-word initializer plus an explicit
+8192-word verification count. The remaining pages must still be checked as zero,
+not omitted from validation. This keeps the carrier code/data envelope unchanged.
+The profile alone is not a phone image or a general full-kernel boot loader.
+
+The local bounded-C carrier integration passed 55 unit tests and complete image
+emulation: actual entry, native tables/MMU, original arm_init C, stop before
+arm_vm_init, cache-aware physical return, and diagnostic screen rendering.
+Its compiled checker rejected 19 state corruptions, including the last pool
+word and extra table pages; seven preparation acceptance/rejection cases passed.
+The public staging/binary/MMU/profile suite has 38 passing tests with the pinned
+kernel and compiled observer supplied.
+
+Local RAM image: artifacts/mido-native4k-c-v3/mido-xnu-carrier-probe.img,
+51,924,992 bytes, SHA-256
+6b5780f1836957294582e608adcc1e99be248fc90ab62f5bafdc6c2040ba4ce8.
+At 2026-10-30 17:40:40 UTC the handset accepted its fastboot boot command via
+the verified temporary lk2nd 23.1 loader. No flash/erase command was executed.
+The hardware early-C result is NOT yet confirmed: it requires a photograph of
+the handset diagnostic display. This is deliberately halted before VM init,
+not a full XNU, dyld, SpringBoard or iOS boot.
