@@ -125,3 +125,109 @@ class PhysmapReferenceTests(unittest.TestCase):
                 self.assertTrue(ref.accepts(address, 8, value, helper+0x210, helper))
                 self.assertFalse(ref.accepts(address, 8, value ^ (1 << 53), helper+0x210, helper))
                 self.assertFalse(ref.accepts(address, 8, value, helper+0x214, helper))
+
+    def test_boundary_slides_with_geometry_derived_count_reach_dynamic_rest_roots(self):
+        from tools.mido_vm_geometry import l2_count
+        from tools.mido_vm_physmap_complete_reference import CompletePhysmapReference
+        from tools.mido_vm_translation_audit import walk
+
+        segments = inspect(self.kernel())["segments"]
+        for slide in (0x36e00000, 0x37bff000):
+            with self.subTest(slide=slide):
+                physmap = VIRTUAL + TOP - PHYSICAL + slide
+                count = l2_count(VIRTUAL, PHYSICAL, TOP, physmap, physmap + 0x3000000, MEMORY)
+                self.assertEqual(count, 1)
+                ref = CompletePhysmapReference(segments, VIRTUAL, PHYSICAL, TOP, count)
+                ref.physmap = physmap
+                ref.end_kernel = VIRTUAL + 0xf6c000
+                first = ref.first_entry(physmap)
+                snapshot = ref.expected("vm-physmap-before-ttbr")
+                self.assertEqual(len(snapshot), 59*4096)
+                for index in range(4):
+                    result = walk(snapshot, first.virtual + index*4096)
+                    self.assertTrue(result["mapped"])
+                    self.assertEqual(result["physical"], PHYSICAL + index*4096)
+                    self.assertTrue(result["writable"])
+                    self.assertFalse(result["executable"])
+                    self.assertFalse(result["user_accessible"])
+                    self.assertTrue(result["access_flag"])
+                ref.request = "__PHYSMAP_REST"
+                self.assertIn(TOP + 9*4096, ref.allowed_l2_roots())
+                rest = ref.rest_entry()
+                for address in (rest.virtual, rest.virtual + rest.length - 4096):
+                    result = walk(snapshot, address)
+                    self.assertTrue(result["mapped"])
+                    self.assertEqual(result["physical"], TOP + address - rest.virtual)
+                    self.assertTrue(result["writable"])
+                    self.assertFalse(result["executable"])
+                    self.assertFalse(result["user_accessible"])
+                    self.assertTrue(result["access_flag"])
+
+    def test_first_alias_can_use_dynamic_root_193_with_one_initial_root(self):
+        from tools.mido_vm_geometry import l2_count
+        from tools.mido_vm_translation_audit import walk
+
+        segments = inspect(self.kernel())["segments"]
+        for slide in (0x37c00000, 0x37dff000):
+            with self.subTest(slide=slide):
+                physmap = VIRTUAL + TOP - PHYSICAL + slide
+                count = l2_count(VIRTUAL, PHYSICAL, TOP, physmap, physmap + 0x3000000, MEMORY)
+                self.assertEqual(count, 1)
+                ref = PhysmapReference(segments, VIRTUAL, PHYSICAL, TOP, count)
+                ref.physmap = physmap
+                entry = ref.first_entry(physmap)
+                self.assertEqual((entry.virtual >> 30) & 255, 193)
+                link, descriptor, leaves = ref.first_descriptors()
+                root = TOP + 9*4096
+                self.assertEqual(link, root + ((entry.virtual >> 21) & 511)*8)
+                self.assertEqual(descriptor, (TOP + 56*4096) | 3)
+                before = ref.expected("vm-physmap-entry")
+                self.assertEqual(struct.unpack_from("<Q", before, 4096 + 193*8)[0] & 0xfffffffff000,
+                                 root)
+                snapshot = ref.expected("vm-physmap-first-mapped")
+                self.assertEqual(len(snapshot), 57*4096)
+                changed = {TOP + offset for offset in range(0, len(before), 8)
+                           if before[offset:offset + 8] != snapshot[offset:offset + 8]}
+                self.assertEqual(changed, {link})
+                for index in range(4):
+                    result = walk(snapshot, entry.virtual + index*4096)
+                    self.assertTrue(result["mapped"])
+                    self.assertEqual(result["physical"], PHYSICAL + index*4096)
+                    self.assertEqual(result["trace"][1]["table"], root)
+                    self.assertTrue(result["writable"])
+                    self.assertFalse(result["executable"])
+                    self.assertFalse(result["user_accessible"])
+                    self.assertTrue(result["access_flag"])
+                self.assertFalse(walk(snapshot, entry.virtual + 0x4000)["mapped"])
+                helper = 0x10000
+                ref.request = "__PHYSMAP_FIRST"
+                self.assertTrue(ref.accepts(link, 8, descriptor, helper + 0x128, helper))
+                wrong_link = TOP + 3*4096 + ((entry.virtual >> 21) & 511)*8
+                self.assertFalse(ref.accepts(wrong_link, 8, descriptor, helper + 0x128, helper))
+                self.assertFalse(ref.accepts(link, 4, descriptor, helper + 0x128, helper))
+                for address, value in leaves.items():
+                    self.assertTrue(ref.accepts(address, 8, value, helper + 0x210, helper))
+                    self.assertFalse(ref.accepts(address, 8, value ^ (1 << 53), helper + 0x210, helper))
+
+    def test_all_preallocated_root_pages_and_outside_root_rejection(self):
+        from tools.mido_vm_translation_audit import walk
+
+        segments = inspect(self.kernel())["segments"]
+        base = VIRTUAL & ~0x3fffffff
+        for count in (1, 2):
+            ref = PhysmapReference(segments, VIRTUAL, PHYSICAL, TOP, count)
+            initial = ref.expected("vm-physmap-entry")
+            for root in range(48):
+                ref.physmap = base + root*0x40000000 + 0x20000000
+                entry = ref.first_entry(ref.physmap)
+                link, _, _ = ref.first_descriptors()
+                page = TOP + (2 + root if root < count else 8 + root)*4096
+                self.assertEqual(link, page + ((entry.virtual >> 21) & 511)*8)
+                self.assertEqual(struct.unpack_from("<Q", initial, 4096 + (192 + root)*8)[0] &
+                                 0xfffffffff000, page)
+                self.assertEqual(walk(ref.expected("vm-physmap-first-mapped"), entry.virtual)["physical"],
+                                 PHYSICAL)
+            for root in (-1, 48):
+                ref.physmap = base + root*0x40000000 + 0x20000000
+                with self.assertRaisesRegex(ValueError, "preallocated roots"):
+                    ref.first_descriptors()

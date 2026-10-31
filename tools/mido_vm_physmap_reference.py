@@ -67,10 +67,11 @@ class PhysmapReference(DynamicReference):
             raise ValueError("Physmap geometry not observed")
         entry = self.first_entry(self.physmap)
         root = ((entry.virtual >> 30) & 255) - ((self.virtual >> 30) & 255)
-        if not 0 <= root < self.l2_count or entry.virtual & 0x1fffff:
+        if not 0 <= root < 48 or entry.virtual & 0x1fffff:
             raise ValueError("First physmap mapping escaped preallocated roots")
         page = self.top + 56*4096
-        link = self.top + (2+root)*4096 + ((entry.virtual >> 21) & 511)*8
+        root_page = 2 + root if root < self.l2_count else 8 + root
+        link = self.top + root_page*4096 + ((entry.virtual >> 21) & 511)*8
         leaves = {page+index*8: (entry.physical+index*4096) | 0x0060000000000603
                   for index in range(4)}
         return link, page | 3, leaves

@@ -393,3 +393,26 @@ the observer at VA 0xfffffff008200000 writable but NONEXECUTABLE. The existing
 cache-clean sweep and low-address return also need a separate redesign/review
 before activation. immediate_switch_safe remains false. No new handset image,
 TTBR switch, hardware cache-coherency proof or full XNU/iOS boot is claimed.
+
+## Inactive physmap RAM diagnostic
+
+The new inactive physmap RAM diagnostic covers 59 pages in 15 report groups,
+checking the exact PTOV table and index 2, plus a full table comparison including
+all eight runtime alias overrides. Its regression covers the dynamic-root fix:
+an initial L2 count of 1 still permits a dynamically created root, provided the
+root index is below 48. The table page is 2 + root when root < initial count,
+otherwise 8 + root.
+
+The stop remains arm_vm_init + 0x13e4, BEFORE either TTBR setter, with active
+bootstrap tables unchanged. The observer is NX in the final inactive tables;
+no activation or full boot is claimed. Offline validation passed 53 cumulative
+checkpoints, 272 compiled corruption rejections, seven preparation cases and
+three model geometries. Local regression runs passed 152 main-suite tests and
+35 return/MMU tests; the independent public checkout passed 114 focused tests
+without skips. Hardware validation remains pending.
+
+The candidate image SHA-256 is
+`b62db4be14b27de5bf3cdef4b03950ec1721bc0388714bf92c2bafaf5fdeaf48`.
+Frozen inputs, source snapshots and the suite index are retained locally in
+`artifacts/mido-native4k-physmap-carrier-v1/`. This is a diagnostic RAM image,
+not an installable system or a successful XNU/iOS boot.
