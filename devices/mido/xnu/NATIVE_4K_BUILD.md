@@ -359,3 +359,37 @@ physical-aperture regressions. Frozen source snapshots and lossless numeric
 execution reports are retained locally under
 artifacts/mido-native4k-vm-physmap-batch-v2/. No new handset boot or GitHub
 Actions run was performed for this offline-only increment.
+
+
+## Complete inactive physmap and PTOV publication
+
+The next increment executes all nine remaining exact checkpoints in the pinned
+non-monitor initialization path. It retains the original implementations of
+the mapping helpers, specialized qsort and memmove. It maps the linear handoff
+tail, then the remaining physical-aperture range; sorts two nonzero PTOV
+entries among six zero entries; and publishes exactly 192 bytes.
+
+The independent complete reference uses sequential L3 allocation, exact
+request-specific stores, block/page permissions and contiguous hints. Completed
+handoff tables occupy 58 pages; the final snapshot occupies 59 pages
+(241664 bytes), with avail_start at physical 0x1243c000. All table words and
+the allocation cursor must match. PTOV validation compares the exact multiset
+and descending lengths, without assuming stable ordering for equal lengths.
+
+The final original-execution report walks 4 first-alias pages, 661 linear
+handoff pages and 3583 remaining-alias pages. These pages must have exact PA
+translations, RW/NX privileged-only permissions and access flags. Continuation,
+vector-base, live-stack-page and both ends of the copied bootargs are sampled
+separately. These samples do not establish the entire live dependency set.
+
+All 53 cumulative checkpoints pass, with initial L2 counts 1 and 2 observed.
+The regression suite passes 163 tests. The focused model suite also passes
+89 tests in the clean public checkout. Frozen source snapshots and reports
+are retained in artifacts/mido-native4k-vm-physmap-complete-batch-v1/.
+
+The last stop is arm_vm_init + 0x13e4, immediately BEFORE the first TTBR setter.
+The active bootstrap tables remain unchanged. The final inactive mapping makes
+the observer at VA 0xfffffff008200000 writable but NONEXECUTABLE. The existing
+cache-clean sweep and low-address return also need a separate redesign/review
+before activation. immediate_switch_safe remains false. No new handset image,
+TTBR switch, hardware cache-coherency proof or full XNU/iOS boot is claimed.
