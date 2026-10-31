@@ -187,3 +187,25 @@ def dynamic_plan(kernel):
         if struct.unpack_from("<I", kernel, offset + displacement)[0] != expected:
             raise ValueError("Reviewed dynamic-root store or physmap boundary differs")
     return {name: start + displacement for name, displacement in DYNAMIC_STAGES.items()}
+
+
+def physmap_plan(kernel):
+    from tools.mido_vm_physmap_reference import PHYSMAP_STAGES
+
+    dynamic_plan(kernel)
+    symbols = macho_symbols(kernel)
+    segments = inspect(kernel)["segments"]
+    for caller, offset, callee in (("_arm_vm_init", 0x131c, "_arm_vm_physmap_slide"),
+                                    ("_arm_vm_physmap_slide", 0x108, "_arm_vm_page_granular_prot"),
+                                    ("_arm_vm_init", 0x13e4, "_set_mmu_ttb_alternate"),
+                                    ("_arm_vm_init", 0x13f4, "_set_mmu_ttb")):
+        address = symbols[caller] + offset
+        segment = next(segment for segment in segments
+                       if segment["vmaddr"] <= address < segment["vmaddr"] + segment["filesize"])
+        word = struct.unpack_from("<I", kernel, segment["fileoff"] + address-segment["vmaddr"])[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or address + immediate*4 != symbols[callee]:
+            raise ValueError("Reviewed physmap or TTBR activation call differs")
+    return {name: symbols[symbol] + offset for name, (symbol, offset) in PHYSMAP_STAGES.items()}

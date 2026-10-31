@@ -322,3 +322,40 @@ observed. Image SHA-256:
 The extended report lists 13 actual check groups over 56 pages. It still
 stops before physmap construction and does not establish full boot, cache
 coherency or userspace. Hardware confirmation is pending a new photo.
+
+
+## First physical-aperture mapping
+
+The dynamic-root image was subsequently confirmed by a handset photo showing
+XNU VM DYNAMIC OK, zero FAIL, all 13 groups PASS, 56 pages and L2CNT 1.
+Photo SHA-256:
+605350abf2afa1a490343e4bdfb37e48c418d414ea8288a23557d27ff0952164.
+The stop remained BEFORE PHYSMAP; this photo does not confirm later work.
+
+The next implementation adds a typed physical-aperture range planner, including
+4-KiB rounding, 2-MiB offset alignment, eight-entry capacity and arena/overflow
+bounds. Four exact checkpoints execute original kernel code through preparation
+and the first actual inactive mapping, without replacing its implementation.
+The first request maps physical 0x11200000..0x11204000 to a randomized physical-
+aperture alias. It allocates one additional L3 page at 0x12439000, for 57 pages
+(233472 bytes) total. The alias is RW, privileged-only and nonexecuting; the
+next page must remain unmapped. Every table word is compared independently.
+
+The runner additionally checks the original scratch PTOV entry, exact mapping
+ABI arguments, PTOV cursor, unpublished final PTOV table, allocation cursor and
+unchanged active bootstrap tables. The stop is arm_vm_init + 0x1320, before the
+remaining aperture mappings, sorting/publication and either TTBR setter.
+
+This is currently OFFLINE execution evidence, not a new handset image or
+physical cache-coherency proof. The previous photographed RAM image remains
+the last hardware-confirmed result. Completing the remaining physmap ranges
+and checking activation readiness are still outstanding.
+
+
+Validation: all 44 cumulative original-kernel checkpoints pass with both initial
+L2 geometries observed across isolated cases. The regression suite passes 127
+tests; 53 focused model tests pass in this public checkout, including 11 new
+physical-aperture regressions. Frozen source snapshots and lossless numeric
+execution reports are retained locally under
+artifacts/mido-native4k-vm-physmap-batch-v2/. No new handset boot or GitHub
+Actions run was performed for this offline-only increment.
