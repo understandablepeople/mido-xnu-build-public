@@ -165,3 +165,25 @@ def postmap_plan(kernel):
         if struct.unpack_from("<I", kernel, offset + displacement)[0] != expected:
             raise ValueError("Reviewed low-global link or TCR boundary differs")
     return {name: start + displacement for name, displacement in POSTMAP_STAGES.items()}
+
+
+def dynamic_plan(kernel):
+    from tools.mido_vm_dynamic_reference import DYNAMIC_STAGES
+
+    postmap_plan(kernel)
+    symbols = macho_symbols(kernel)
+    start = symbols["_arm_vm_init"]
+    segment = next(segment for segment in inspect(kernel)["segments"]
+                   if segment["vmaddr"] <= start and start + 0x1688 <= segment["vmaddr"] + segment["filesize"])
+    offset = segment["fileoff"] + start - segment["vmaddr"]
+    for displacement in (0x1684, 0x1300):
+        word = struct.unpack_from("<I", kernel, offset + displacement)[0]
+        immediate = word & 0x3ffffff
+        if immediate & 0x2000000:
+            immediate -= 0x4000000
+        if word & 0xfc000000 != 0x94000000 or start + displacement + immediate * 4 != symbols["_bzero"]:
+            raise ValueError("Reviewed dynamic table or physmap scratch clear differs")
+    for displacement, expected in ((0x1680, 0xf9000368), (0x12d4, 0xd5382048)):
+        if struct.unpack_from("<I", kernel, offset + displacement)[0] != expected:
+            raise ValueError("Reviewed dynamic-root store or physmap boundary differs")
+    return {name: start + displacement for name, displacement in DYNAMIC_STAGES.items()}

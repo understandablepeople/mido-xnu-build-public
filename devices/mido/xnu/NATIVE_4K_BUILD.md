@@ -288,3 +288,37 @@ cases and two explicitly model-only geometry cases. The regression suite
 passes 109 tests, with 43 focused tests passing in this public checkout.
 This image stops before dynamic mappings; hardware confirmation requires
 a new photo. It does not activate the new tables or boot iOS.
+
+
+## Dynamic roots: bounded diagnostic
+
+The preceding LOWGLO image was confirmed by a handset photo: XNU VM LOWGLO OK,
+zero failure mask, and STOP BEFORE DYN MAP. Photo SHA-256:
+415d1bab3496641baf501530687fd1dbf42380fa5e10931ecc05785eda74dd5d.
+This confirms that bounded checkpoint, not a complete XNU or iOS boot.
+
+The next reference model covers eight additional exact instruction boundaries,
+through scratch initialization at arm_vm_init + 0x1304, before physmap mapping
+construction. Existing randomized layouts retain either one or two initial L2
+roots. Both finish with 56 allocated 4-KiB pages (229376 bytes), ending at
+physical 0x12439000. Newly allocated empty L2 roots use table attributes
+0x3800000000000003. Exact table-word equality and unchanged active bootstrap
+tables remain required; no TTBR switch is authorized by this model.
+
+Exploratory first-clear reports remain failed: an instruction boundary can be
+visited while skipping an existing root, before any new clear. The observer
+now also requires the exact allocation count and initialized geometry. A
+relocation-sensitive pointer array in the extended screen reporter was replaced
+with fixed-width character arrays before any new handset test. These are
+diagnostic fixes, not patches bypassing original kernel execution.
+
+
+The final dynamic-root carrier passes complete offline original-C execution,
+physical return and framebuffer rendering, plus 224 compiled corruption
+rejections, seven preparation cases and two model-only geometry cases.
+The independent batch passes all 40 checkpoints with both initial L2 counts
+observed. Image SHA-256:
+7548f83b8ebdf98bfb36806891905ad19343a86528bf8eb43568cea174fccc9c.
+The extended report lists 13 actual check groups over 56 pages. It still
+stops before physmap construction and does not establish full boot, cache
+coherency or userspace. Hardware confirmation is pending a new photo.
