@@ -12,10 +12,10 @@ index fd3aef1..12d6bee 100644
  bsd/dev/unix_startup.c			standard
 diff --git a/bsd/dev/mido_mmc.c b/bsd/dev/mido_mmc.c
 new file mode 100644
-index 0000000..5e0dd76
+index 0000000..496e3f7
 --- /dev/null
 +++ b/bsd/dev/mido_mmc.c
-@@ -0,0 +1,742 @@
+@@ -0,0 +1,761 @@
 +/*
 + * MIDO internal eMMC root device (Qualcomm SDHCI "sdhci-msm", polled PIO).
 + *
@@ -99,6 +99,8 @@ index 0000000..5e0dd76
 +	bool ready;
 +} mm;
 +
++/* [0] failing step, [1] last command index, [2] INT/PRES status at failure (shown by the root panic) */
++volatile uint32_t mido_mmc_dbg[4];
 +static LCK_GRP_DECLARE(mido_mmc_grp, "mido_mmc");
 +static LCK_MTX_DECLARE(mido_mmc_lock, &mido_mmc_grp);
 +
@@ -198,12 +200,16 @@ index 0000000..5e0dd76
 +			break;
 +		}
 +		if (mach_absolute_time() > dl) {
++			mido_mmc_dbg[1] = idx;
++			mido_mmc_dbg[2] = 0x80000000u | sd_rd32(SD_PRES);
 +			mmc_cmd_reset();
 +			return ETIMEDOUT;
 +		}
 +		delay(5);
 +	}
 +	if (st & INT_ERR) {
++		mido_mmc_dbg[1] = idx;
++		mido_mmc_dbg[2] = st;
 +		mmc_cmd_reset();
 +		return EIO;
 +	}
@@ -388,6 +394,7 @@ index 0000000..5e0dd76
 +	uint32_t resp[4] = { 0, 0, 0, 0 };
 +	int e;
 +
++	mido_mmc_dbg[0] = 1;
 +	/* 1. HC mode, controller reset, vendor DLL/spec registers to legacy selection. */
 +	core_wr(MMC_CORE_HCMODE, core_rd(MMC_CORE_HCMODE) | 1u);
 +	sd_wr8(SD_SWRST, 1);
@@ -409,11 +416,13 @@ index 0000000..5e0dd76
 +	delay(5000);
 +
 +	/* 2. identification */
++	mido_mmc_dbg[0] = 2;
 +	if ((e = mmc_cmd(0, 0, 0x00, 0, NULL))) {
 +		return e;
 +	}
 +	delay(2000);
 +	int n;
++	mido_mmc_dbg[0] = 3;
 +	for (n = 0; n < 200; n++) {
 +		e = mmc_cmd(1, 0x40ff8080u, 0x02, 0, resp);
 +		if (e || (resp[0] & 0x80000000u)) {
@@ -427,6 +436,7 @@ index 0000000..5e0dd76
 +	if (n == 200) {
 +		return ETIMEDOUT;
 +	}
++	mido_mmc_dbg[0] = 4;
 +	if ((e = mmc_cmd(2, 0, 0x09, 0, resp)) ||
 +	    (e = mmc_cmd(3, 1u << 16, 0x1a, 0, resp)) ||
 +	    (e = mmc_cmd(7, 1u << 16, 0x1b, 0, resp))) {
@@ -434,6 +444,7 @@ index 0000000..5e0dd76
 +	}
 +
 +	/* 3. EXT_CSD, 8-bit bus, high speed 50 MHz */
++	mido_mmc_dbg[0] = 5;
 +	{
 +		static uint8_t ext[SECSIZE];
 +		sd_wr16(SD_BLKSIZE, SECSIZE);
@@ -445,6 +456,8 @@ index 0000000..5e0dd76
 +			delay(2);
 +		}
 +		if (!(sd_rd32(SD_INT) & INT_BRR)) {
++			mido_mmc_dbg[1] = 8;
++			mido_mmc_dbg[2] = sd_rd32(SD_INT);
 +			mmc_cmd_reset();
 +			return EIO;
 +		}
@@ -461,16 +474,19 @@ index 0000000..5e0dd76
 +		memcpy(&sec_count, ext + 212, 4);
 +		printf("MIDO MMC: eMMC rev %u, %u sectors (%u MiB)\n", ext[192], sec_count, sec_count >> 11);
 +	}
++	mido_mmc_dbg[0] = 6;
 +	if ((e = mmc_cmd(6, (3u << 24) | (183u << 16) | (2u << 8), 0x1b, 0, resp))) {
 +		return e;
 +	}
 +	sd_wr8(SD_HCTL, sd_rd8(SD_HCTL) | 0x20);        /* 8-bit */
++	mido_mmc_dbg[0] = 7;
 +	if ((e = mmc_cmd(6, (3u << 24) | (185u << 16) | (1u << 8), 0x1b, 0, resp))) {
 +		return e;
 +	}
 +	sd_wr8(SD_HCTL, sd_rd8(SD_HCTL) | 0x04);        /* high speed */
 +	mmc_set_clock(2);                               /* 50 MHz */
 +	delay(2000);
++	mido_mmc_dbg[0] = 8;
 +	return mmc_wait_ready();
 +}
 +
@@ -480,7 +496,10 @@ index 0000000..5e0dd76
 +	uint8_t hdr[SECSIZE], ent[SECSIZE];
 +	uint64_t entry_lba;
 +	uint32_t nent, esz;
-+	int e = mmc_read_sectors(1, 1, hdr);
++	int e;
++
++	mido_mmc_dbg[0] = 9;
++	e = mmc_read_sectors(1, 1, hdr);
 +
 +	if (e) {
 +		return e;
@@ -759,10 +778,10 @@ index 0000000..5e0dd76
 +}
 +#endif /* ARM64_BOARD_CONFIG_MIDO */
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
-index 5219fb0..f93c3e9 100644
+index 5219fb0..515c80e 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -766,6 +766,24 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
+@@ -766,6 +766,26 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
  		}
  	}
  
@@ -775,7 +794,9 @@ index 5219fb0..f93c3e9 100644
 +		OSSafeReleaseNULL(matching);
 +		int mmc_error = mido_mmc_rootdev(root);
 +		if (mmc_error) {
-+			panic("IOFindBSDRoot: MIDO eMMC root %s unavailable: %d", rdBootVar, mmc_error);
++			extern volatile uint32_t mido_mmc_dbg[4];
++			panic("IOFindBSDRoot: MIDO eMMC root %s unavailable: %d (step %u cmd %u st 0x%x)", rdBootVar, mmc_error,
++			    mido_mmc_dbg[0], mido_mmc_dbg[1], mido_mmc_dbg[2]);
 +		}
 +		strlcpy(rootName, rdBootVar, rootNameSize);
 +		IOLog("BSD root: %s, major %d, minor %d\n", rootName, major(*root), minor(*root));
