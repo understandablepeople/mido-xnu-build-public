@@ -1,0 +1,44 @@
+diff --git a/osfmk/arm/commpage/commpage_asm.s b/osfmk/arm/commpage/commpage_asm.s
+index da0bbba..517f22e 100644
+--- a/osfmk/arm/commpage/commpage_asm.s
++++ b/osfmk/arm/commpage/commpage_asm.s
+@@ -273,8 +273,19 @@ _pfz_trylock_and_enqueue:
+ 	mov		w11, #1			 // locked value = w11 = 1
+ 
+ 	// Try to grab the lock
++#if !defined(__ARM_FEATURE_ATOMICS)
++	/* Cortex-A53 (ARMv8.0) has no LSE CAS: load-acquire/store-exclusive try-lock. */
++Lmido_trylock_1:
++	ldaxr	w10, [x3]
++	cbnz	w10, Lmido_trylock_1_held
++	stxr	w12, w11, [x3]
++	cbnz	w12, Lmido_trylock_1
++	b		Ltrylock_enqueue_success
++Lmido_trylock_1_held:
++#else
+ 	casa	w10, w11, [x3]	 // Atomic CAS with acquire barrier
+ 	cbz		w10, Ltrylock_enqueue_success
++#endif
+ 
+ 	mov		x0, #-1			// Failed
+ 	b Ltrylock_enqueue_exit
+@@ -323,8 +334,19 @@ _pfz_trylock_and_dequeue:
+ 	mov		w10, wzr		 // unlock value = w10 = 0
+ 	mov		w11, #1			 // locked value = w11 = 1
+ 
++#if !defined(__ARM_FEATURE_ATOMICS)
++	/* Cortex-A53 (ARMv8.0) has no LSE CAS: load-acquire/store-exclusive try-lock. */
++Lmido_trylock_2:
++	ldaxr	w10, [x2]
++	cbnz	w10, Lmido_trylock_2_held
++	stxr	w12, w11, [x2]
++	cbnz	w12, Lmido_trylock_2
++	b		Ltrylock_dequeue_success
++Lmido_trylock_2_held:
++#else
+ 	casa	w10, w11, [x2]	 // Atomic CAS with acquire barrier
+ 	cbz		w10, Ltrylock_dequeue_success
++#endif
+ 
+ 	mov		x0, #-1			// Failed
+ 	b Ltrylock_dequeue_exit
