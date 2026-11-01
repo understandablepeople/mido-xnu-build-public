@@ -1,0 +1,49 @@
+diff --git a/iokit/Kernel/arm/MidoCPU.cpp b/iokit/Kernel/arm/MidoCPU.cpp
+index cf61343..88cd3da 100644
+--- a/iokit/Kernel/arm/MidoCPU.cpp
++++ b/iokit/Kernel/arm/MidoCPU.cpp
+@@ -61,6 +61,7 @@ OSDefineMetaClassAndStructors(MidoCPU, IOCPU);
+ bool
+ MidoCPU::start(IOService *provider)
+ {
++	IOLog("MIDO CPU: start() called\n");
+ 	const ml_topology_info_t *topology = ml_get_topology_info();
+ 	OSNumber *logical = OSDynamicCast(OSNumber, provider->getProperty("logical-cpu-id"));
+ 	OSData *reg = OSDynamicCast(OSData, provider->getProperty("reg"));
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index 4c9e9de..314f5f6 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1882,6 +1882,14 @@ sleh_irq(arm_saved_state_t *state)
+ 	 */
+ 	uint32_t iar = mido_gic_ack();
+ 	uint32_t intid = iar & GICC_IAR_INTID_MASK;
++	{
++		/* Diagnostic (hardware bring-up): the first few interrupts. */
++		static volatile uint32_t mido_irq_seen;
++		uint32_t seen = mido_irq_seen++;
++		if (seen < 6) {
++			kprintf("MIDO IRQ #%u: iar=%x intid=%u\n", seen, iar, intid);
++		}
++	}
+ 
+ 	if (intid >= 1020 && intid <= 1023) {
+ 		return; /* spurious */
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index 82e7aab..d7e4d33 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -319,6 +319,13 @@ pe_init_fiq()
+ 	gicd_write32(GICD_CTLR, gicd_read32(GICD_CTLR) | GICD_CTLR_ENABLEGRP1);
+ 	__builtin_arm_dsb(DSB_SY);
+ 	__builtin_arm_isb(ISB_SY);
++
++	/* Diagnostic (hardware bring-up): what the GIC really accepted. */
++	kprintf("MIDO GIC: cpu D.CTLR=%x IGRP0=%x ISEN0=%x PRI[16..19]=%x PRI[20..23]=%x ITGT[20..23]=%x C.CTLR=%x PMR=%x\n",
++	    gicd_read32(GICD_CTLR), gicd_read32(GICD_IGROUPR0), gicd_read32(GICD_ISENABLER0),
++	    gicd_read32(GICD_IPRIORITYR0 + 16), gicd_read32(GICD_IPRIORITYR0 + 20),
++	    gicd_read32(GICD_ITARGETSR0 + 20), *((volatile uint32_t *)(mido_gicc_base + GICC_CTLR)),
++	    *((volatile uint32_t *)(mido_gicc_base + GICC_PMR)));
+ }
+ #else
+ void

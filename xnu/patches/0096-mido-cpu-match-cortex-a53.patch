@@ -1,0 +1,37 @@
+diff --git a/iokit/Kernel/arm/MidoCPU.cpp b/iokit/Kernel/arm/MidoCPU.cpp
+index 88cd3da..a4d15a3 100644
+--- a/iokit/Kernel/arm/MidoCPU.cpp
++++ b/iokit/Kernel/arm/MidoCPU.cpp
+@@ -74,8 +74,8 @@ MidoCPU::start(IOService *provider)
+ 	if (*(const uint32_t *)reg->getBytesNoCopy() != cpu->phys_id) {
+ 		return false;
+ 	}
+-	/* MPIDR Aff1 = core: 0x000-0x500 A55, 0x600/0x700 A76 */
+-	if (cpu->phys_id > 0x700 || (cpu->phys_id & 0xff) != 0 ||
++	/* MSM8953: Aff1 = cluster (0-1), Aff0 = core (0-3): 0x000-0x003, 0x100-0x103 */
++	if ((cpu->phys_id >> 8) > 1 || (cpu->phys_id & 0xff) > 3 ||
+ 	    topology->num_cpus > MIDO_SMP_MAX_CPUS) {
+ 		panic("MIDO CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
+ 		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);
+@@ -83,7 +83,7 @@ MidoCPU::start(IOService *provider)
+ 	if (!IOCPU::start(provider)) {
+ 		return false;
+ 	}
+-	cpuName = OSSymbol::withCStringNoCopy("Kryo 470");
++	cpuName = OSSymbol::withCStringNoCopy("Cortex-A53");
+ 	if (cpuName == NULL) {
+ 		return false;
+ 	}
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 68f8c66..e07f6cc 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -44,7 +44,7 @@ const char * gIOKernelConfigTables =
+     "   {"
+     "     'IOClass'         = MidoCPU;"
+     "     'IOProviderClass' = IOPlatformDevice;"
+-    "     'IONameMatch'     = 'qcom,kryo470';"
++    "     'IONameMatch'     = 'arm,cortex-a53';"
+     "     'IOProbeScore'    = 10000:32;"
+     "   },"
+     "   {"
