@@ -48,13 +48,11 @@ jobs:
           git -C dxb checkout -q FETCH_HEAD
           # 12.5-14.3 use the top-level patches dir; ours go next to blacktop's
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
-          # libfirehose_kernel is built arm64e-only; the MIDO kernel is plain arm64
-          sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
-          grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
-          # Cortex-A53 has no LSE/RCpc: without an explicit CPU the arm64 slice of libfirehose_kernel
-          # is built for apple-m1 (ldadd/ldapr), which is undefined on mido.
-          sed -i '' 's/VALID_ARCHS="x86_64 arm64e arm64" OBJROOT=/VALID_ARCHS="x86_64 arm64e arm64" "OTHER_CFLAGS[arch=arm64]=-mcpu=cortex-a53" OBJROOT=/' dxb/build.sh
-          grep -c 'OTHER_CFLAGS\[arch=arm64\]' dxb/build.sh
+          # libfirehose_kernel: the MIDO kernel is plain arm64 on a Cortex-A53 (ARMv8.0, no LSE/RCpc).
+          # Build only that slice, with an explicit CPU: Xcode's default for arm64 on macOS is
+          # apple-m1, which emits ldadd/ldapr that are undefined instructions on mido.
+          sed -i '' "s/ARCHS=\"x86_64 arm64e\" VALID_ARCHS=\"x86_64 arm64e\"/ARCHS=\"arm64\" VALID_ARCHS=\"arm64\" OTHER_CFLAGS='\$(inherited) -mcpu=cortex-a53'/" dxb/build.sh
+          grep -n 'mcpu=cortex-a53' dxb/build.sh
           ls dxb/patches
 
       - name: Deps
