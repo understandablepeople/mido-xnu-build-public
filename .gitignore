@@ -13,3 +13,4 @@ mido/shim/out/
 __pycache__/
 *.pyc
 mido/tests/**/*.png
+out/
