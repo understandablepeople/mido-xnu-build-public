@@ -416,3 +416,37 @@ The candidate image SHA-256 is
 Frozen inputs, source snapshots and the suite index are retained locally in
 `artifacts/mido-native4k-physmap-carrier-v1/`. This is a diagnostic RAM image,
 not an installable system or a successful XNU/iOS boot.
+
+The subsequent handset photograph confirmed `XNU PHYSMAP OK`, zero failure
+mask, all 15 groups PASS, and 59 pages. The recorded photo SHA-256 is
+`86036d17f528c74b2061f3595e3d2bdad03d332beb7ea9eea027ea4951a4ae1f`.
+It confirms the pre-TTBR diagnostic, not activation or full boot.
+
+## Reversible TTBR1 Diagnostic
+
+The next explicitly opted-in stage executes the original TTBR1 setter, then
+restores the bootstrap TTBR1 before entering the existing return observer.
+It stops before the original TTBR0 setter. No mapping permissions are relaxed.
+An independent table walker verifies the code, stack and vector requirements;
+the original observer remains NX under the new root and is never executed
+there. Its low record uses the unchanged bootstrap TTBR0 mapping.
+
+The 212-byte transition observer fits verified zero padding outside every
+Mach-O section at VA `0xfffffff007b4ff00`. Its code hash and instruction labels
+are pinned. It masks no new failures: bad incoming roots, TCR or DAIF halt;
+the nine-word record must match before the reporter can show success.
+
+The full CPU-TLB emulator executed the original setter and 40 independently
+verified final-RX fetches, then observed the exact bootstrap-root restoration.
+It passed 281 compiled corruption rejections, nine preparation cases and
+three model geometries. Local focused regression passed 71 tests; the clean
+public checkout passed 67 tests without skips. These are not physical cache
+coherency or handset-execution proofs.
+
+Candidate image SHA-256:
+`e3f6dc7043032d8c03a30d05462475c514d78a6af9bc9dfe96c4f5e6be617f44`.
+Full local runtime sources, frozen snapshots and reports are retained in
+`artifacts/mido-native4k-ttbr1-carrier-v2/`. The isolated planning/checker
+modules and assembly are published here; they alone are not a complete
+carrier builder. Handset validation remains pending. No full XNU/iOS boot
+or installable-system readiness is claimed.
