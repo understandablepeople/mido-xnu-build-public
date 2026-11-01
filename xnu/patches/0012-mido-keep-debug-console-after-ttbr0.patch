@@ -1,0 +1,273 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index cefc724..4984542 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -523,6 +523,7 @@ arm_init(
+ 
+ 	mido_early_mark(7, "entering arm_vm_init");
+ 	arm_vm_init(xmaxmem, args);
++	mido_early_mark(15, "arm_vm_init returned");
+ 
+ 	if (debug_boot_arg) {
+ 		patch_low_glo();
+@@ -535,9 +536,15 @@ arm_init(
+ 	PE_consistent_debug_inherit();
+ 
+ 	/* Setup debugging output. */
++	mido_early_mark(16, "calling serial_init");
+ 	const unsigned int serial_exists = serial_init();
++	mido_early_mark(19, "serial_init returned");
+ 	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
+ 	kprintf("kprintf initialized\n");
++	mido_early_mark(20, "kprintf startup complete");
++	if (serial_exists) {
++		mido_early_disable();
++	}
+ 
+ 	serialmode = 0;
+ 	if (PE_parse_boot_argn("serial", &serialmode, sizeof(serialmode))) {
+diff --git a/osfmk/arm64/Makefile b/osfmk/arm64/Makefile
+index e7781a8..9793366 100644
+--- a/osfmk/arm64/Makefile
++++ b/osfmk/arm64/Makefile
+@@ -41,6 +41,7 @@ EXPORT_MD_LIST = \
+ 	monotonic.h \
+ 	perfmon_arm64_regs.h \
+ 	proc_reg.h \
++	mido_early.h \
+ 	asm.h \
+ 	tlb.h \
+ 	pal_hibernate.h
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+index 55e45de..933c2f0 100644
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -42,6 +42,7 @@
+ #include <arm64/proc_reg.h>
+ #include <arm64/lowglobals.h>
+ #include <arm64/mido_early.h>
++#include <arm64/mido_fb.h>
+ #include <arm/cpu_data_internal.h>
+ #include <arm/misc_protos.h>
+ #include <pexpert/arm64/boot.h>
+@@ -1825,6 +1826,54 @@ init_ptpages(tt_entry_t *tt, vm_map_address_t start, vm_map_address_t end, bool
+ #define ARM64_PHYSMAP_ALIGNMENT_PADDING (PTOV_TABLE_SIZE * ARM_TT_TWIG_SIZE)
+ #endif
+ 
++#if defined(MIDO)
++/*
++ * The reserved low-globals/kernel region is excluded from VM allocation.
++ * Use the otherwise empty VA between low globals (first 2MiB at
++ * VM_MIN_KERNEL_ADDRESS) and gVirtBase for a Normal-NC framebuffer alias that
++ * survives bootstrap TTBR0 teardown. 4K granule: the splash (phys 0x90001000,
++ * 0x5EEC00 bytes) spans MIDO_FB_BLOCKS (3) consecutive 2MiB L2 blocks, so the
++ * alias is MIDO_FB_BLOCKS contiguous L2 slots starting one block above low
++ * globals. Pixel 0 is at MIDO_EARLY_FB_VA + MIDO_FB_BLOCK_OFFSET.
++ */
++#define MIDO_EARLY_FB_VA (VM_MIN_KERNEL_ADDRESS + ARM_TT_L2_SIZE)
++
++static void
++mido_early_map_final(void)
++{
++	const vm_map_address_t va = MIDO_EARLY_FB_VA;
++	_Static_assert(ARM_TT_L2_SIZE == MIDO_FB_BLOCK_SIZE, "4K granule: L2 block must be 2MiB");
++	_Static_assert(BOOTSTRAP_TABLE_SIZE == MIDO_BOOTSTRAP_PAGES * ARM_PGBYTES, "start.s bootstrap page budget");
++	if (va + MIDO_FB_BLOCKS * ARM_TT_L2_SIZE > gVirtBase) {
++		/* Kernel image would overlap the alias (ARM_LARGE_MEMORY needs a link address >= VM_MIN + 8MiB). */
++		panic("mido: early fb alias [%p, +%#x) overlaps kernel at %p", (void *)va,
++		    (unsigned int)(MIDO_FB_BLOCKS * ARM_TT_L2_SIZE), (void *)gVirtBase);
++	}
++	/* All slots must sit in the single L2 table covered by one L1 entry. */
++	assert(((va + MIDO_FB_BLOCKS * ARM_TT_L2_SIZE - 1) & ARM_TT_L1_INDEX_MASK) == (va & ARM_TT_L1_INDEX_MASK));
++	tt_entry_t *l1p = &cpu_tte[(va & ARM_TT_L1_INDEX_MASK) >> ARM_TT_L1_SHIFT];
++	if (*l1p == ARM_TTE_EMPTY) {
++		/* Nothing covered this L1 slot yet (same recipe as the low globals table). */
++		vm_offset_t ptpage_vaddr = alloc_ptpage(TRUE);
++		bzero((void *)ptpage_vaddr, ARM_PGBYTES);
++		*l1p = (kvtophys(ptpage_vaddr) & ARM_TTE_TABLE_MASK) | ARM_TTE_TYPE_TABLE | ARM_TTE_VALID |
++		    ARM_TTE_TABLE_PXN | ARM_TTE_TABLE_XN;
++	}
++	tt_entry_t l1 = *l1p;
++	assert((l1 & (ARM_TTE_VALID | ARM_TTE_TYPE_MASK)) == (ARM_TTE_VALID | ARM_TTE_TYPE_TABLE));
++	tt_entry_t *l2 = (tt_entry_t *)phystokv(l1 & ARM_TTE_TABLE_MASK);
++	for (unsigned int i = 0; i < MIDO_FB_BLOCKS; i++) {
++		tt_entry_t *slot = &l2[((va + i * ARM_TT_L2_SIZE) & ARM_TT_L2_INDEX_MASK) >> ARM_TT_L2_SHIFT];
++		assert(*slot == ARM_TTE_EMPTY);
++		*slot = (uint64_t)(MIDO_FB_BLOCK_PA + i * ARM_TT_L2_SIZE) | ARM_TTE_VALID | ARM_TTE_TYPE_BLOCK |
++		    ARM_TTE_BLOCK_SH(SH_OUTER_MEMORY) |
++		    ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_WRITECOMB) |
++		    ARM_TTE_BLOCK_AF | ARM_TTE_BLOCK_PNX | ARM_TTE_BLOCK_NX;
++	}
++	__asm__ volatile("dsb ishst" ::: "memory");
++}
++#endif
++
+ void
+ arm_vm_init(uint64_t memory_size, boot_args * args)
+ {
+@@ -2153,20 +2202,28 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 
+ 	arm_set_user_tbi();
+ 
++#if defined(MIDO)
++	/* phystokv() must still refer to the bootstrap aperture here. */
++	mido_early_map_final();
++#endif
+ 	arm_vm_physmap_init(args);
+ 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
+ 
+ 	ml_enable_monitor();
+ 
+-	/* The framebuffer VA=PA mapping belongs to the outgoing TTBR0. */
+-	mido_early_disable();
++#if defined(MIDO)
++	/* The final TTBR1 is live; leave the outgoing VA=PA framebuffer alias. */
++	mido_early_relocate(MIDO_EARLY_FB_VA);
++#endif
+ 	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
+ 
+ 	flush_mmu_tlb();
++	mido_early_mark(10, "TTBR0 off; TLB flushed");
+ 	kva_active = TRUE;
+ 	// global table pointers may need to be different due to physical aperture remapping
+ 	cpu_tte = (tt_entry_t*)(phystokv(cpu_ttep));
+ 	invalid_tte = (tt_entry_t*)(phystokv(invalid_ttep));
++	mido_early_mark(11, "physmap table pointers rebound");
+ 
+ 	// From here on out, we're off the bootstrap translation tables.
+ 
+@@ -2259,7 +2316,9 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+     }
+ #endif
+ #endif
++	mido_early_mark(12, "calling pmap_bootstrap");
+ 	pmap_bootstrap(dynamic_memory_begin);
++	mido_early_mark(13, "pmap_bootstrap done");
+ 
+ 	disable_preemption();
+ 
+@@ -2310,6 +2369,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 		va_l1 = va_l2_end;
+ 		cpu_l1_tte++;
+ 	}
++	mido_early_mark(14, "early I/O page tables ready");
+ 
+ #if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR)
+ 	/*
+diff --git a/osfmk/arm64/mido_early.c b/osfmk/arm64/mido_early.c
+index 1637c52..b89abb3 100644
+--- a/osfmk/arm64/mido_early.c
++++ b/osfmk/arm64/mido_early.c
+@@ -4,7 +4,9 @@
+  * start.s maps the splash framebuffer VA=PA as three 2MiB Normal Non-Cacheable
+  * L2 blocks (4K granule); pixels are 24bpp, bytes in memory order B,G,R.
+  * All geometry comes from <arm64/mido_fb.h>.
+- * Stop using that mapping before arm_vm_init tears down bootstrap TTBR0.
++ * arm_vm_init installs a reserved kernel VA alias (three 2MiB blocks) before
++ * removing TTBR0; retain this console until the normal framebuffer serial
++ * console is ready.
+  */
+ #include <arm64/mido_early.h>
+ #include <arm64/mido_fb.h>
+@@ -13,7 +15,8 @@
+ #include <stdint.h>
+ #include <kern/misc_protos.h>
+ 
+-#define EARLY_FB ((volatile uint8_t *)(uintptr_t)MIDO_FB_PHYS)
++static volatile uint8_t *early_fb = (volatile uint8_t *)(uintptr_t)MIDO_FB_PHYS;
++#define EARLY_FB early_fb
+ #define EARLY_WIDTH ((unsigned int)MIDO_FB_WIDTH)
+ #define EARLY_HEIGHT ((unsigned int)MIDO_FB_HEIGHT)
+ #define EARLY_STRIDE ((unsigned int)MIDO_FB_STRIDE)	/* bytes per line */
+@@ -109,19 +112,22 @@ mido_early_string(const char *s)
+ void
+ mido_early_mark(unsigned int stage, const char *label)
+ {
+-	if (early_disabled || stage > 8) {
++	if (early_disabled || stage > 20) {
+ 		return;
+ 	}
+ 	/* Progress bar: green with a stage-dependent red component (B,G,R = 0,ff,r). */
+-	uint8_t red = (uint8_t)(stage * 28u);
++	uint8_t red = (uint8_t)((stage & 7u) * 32u);
+ 	for (unsigned int y = EARLY_HEIGHT - 32; y < EARLY_HEIGHT; y++) {
+-		for (unsigned int x = stage * 64; x < (stage + 1) * 64; x++) {
++		for (unsigned int x = stage * 48; x < (stage + 1) * 48; x++) {
+ 			early_put_pixel(EARLY_FB + (size_t)y * EARLY_STRIDE + x * EARLY_BPP, 0x00, 0xff, red);
+ 		}
+ 	}
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ 	mido_early_string("MIDO EARLY ");
+-	mido_early_putc((char)('0' + stage));
++	if (stage >= 10) {
++		mido_early_putc((char)('0' + stage / 10));
++	}
++	mido_early_putc((char)('0' + stage % 10));
+ 	mido_early_string(": ");
+ 	mido_early_string(label);
+ 	mido_early_putc('\n');
+@@ -144,9 +150,18 @@ mido_early_panic(const char *fmt, va_list *args)
+ }
+ 
+ void
+-mido_early_disable(void)
++mido_early_relocate(uint64_t base)
+ {
+ 	mido_early_mark(8, "leaving bootstrap TTBR0");
++	/* base is the VA of the first 2MiB block; the pixels start MIDO_FB_BLOCK_OFFSET into it. */
++	early_fb = (volatile uint8_t *)(uintptr_t)(base + MIDO_FB_BLOCK_OFFSET);
++	__asm__ volatile("dsb sy" ::: "memory");
++	mido_early_mark(9, "kernel framebuffer VA live");
++}
++
++void
++mido_early_disable(void)
++{
+ 	early_disabled = 1;
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+diff --git a/osfmk/arm64/mido_early.h b/osfmk/arm64/mido_early.h
+index 9006835..129d95e 100644
+--- a/osfmk/arm64/mido_early.h
++++ b/osfmk/arm64/mido_early.h
+@@ -1,14 +1,16 @@
+-/* Early screen diagnostics, valid only while the bootstrap TTBR0 is live. */
++/* Screen diagnostics through bootstrap TTBR0 and the final kernel TTBR1. */
+ #ifndef _ARM64_MIDO_EARLY_H_
+ #define _ARM64_MIDO_EARLY_H_
+ 
+ #include <pexpert/arm64/board_config.h>
+ #include <stdarg.h>
++#include <stdint.h>
+ 
+ #if defined(MIDO)
+ void mido_early_mark(unsigned int stage, const char *label);
+ void mido_early_putc(char c);
+ void mido_early_panic(const char *fmt, va_list *args);
++void mido_early_relocate(uint64_t base);
+ void mido_early_disable(void);
+ #else
+ static inline void mido_early_mark(unsigned int stage, const char *label)
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index 6f3a629..aa3d8d6 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -27,6 +27,7 @@
+ #include <pexpert/arm64/board_config.h>
+ #include <arm64/proc_reg.h>
+ #include <arm64/mido_fb.h>
++#include <arm64/mido_early.h>
+ #include <pexpert/arm/protos.h>
+ #include <kern/sched_prim.h>
+ #if HIBERNATION
+@@ -859,8 +860,10 @@ fbcon_probe(void)
+ 	    length < (uint64_t)fbcon_stride * fbcon_height) {
+ 		return;
+ 	}
++	mido_early_mark(17, "fbcon config read; mapping");
+ 	/* The splash is 4 KiB aligned (0x90001000) but not 2 MiB aligned; io_map is page granular. */
+ 	fbcon_base = (volatile uint8_t *)ml_io_map_wcomb(phys, (vm_size_t)length);
++	mido_early_mark(18, "fbcon mapping returned");
+ 	if (fbcon_base != NULL) {
+ 		register_serial_functions(&mido_fbcon_serial_functions);
+ 	}

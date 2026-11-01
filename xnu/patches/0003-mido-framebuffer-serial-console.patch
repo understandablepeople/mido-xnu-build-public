@@ -1,0 +1,270 @@
+diff --git a/osfmk/arm64/Makefile b/osfmk/arm64/Makefile
+index f819fea..e7781a8 100644
+--- a/osfmk/arm64/Makefile
++++ b/osfmk/arm64/Makefile
+@@ -32,6 +32,7 @@ INSTALL_SF_MD_LCL_LIST = \
+ # TODO: Is there a reason that machine_machdep.h is not in this list? If not, these lists can be consolidated.
+ # Headers used to compile xnu
+ EXPORT_MD_LIST = \
++	mido_fb.h \
+ 	hv_hvc.h \
+ 	lowglobals.h \
+ 	machine_cpuid.h \
+diff --git a/osfmk/arm64/mido_fb.h b/osfmk/arm64/mido_fb.h
+new file mode 100644
+index 0000000..acb1407
+--- /dev/null
++++ b/osfmk/arm64/mido_fb.h
+@@ -0,0 +1,42 @@
++/*
++ * mido (Redmi Note 4X, MSM8953) boot framebuffer: the lk2nd continuous
++ * splash. The single definition of its geometry. Usable from C and from
++ * assembly (#defines only). 4 KiB granule only: an L2 block is 2 MiB.
++ *
++ * boot_args.Video carries the same values at run time (v_baseAddr 0x90001000,
++ * v_rowBytes 3240, v_width 1080, v_height 1920, depth 24); C code should
++ * prefer PE_state.video. These constants are for start.s, which runs before
++ * anything is parsed, and for the early debug console.
++ */
++#ifndef _ARM64_MIDO_FB_H_
++#define _ARM64_MIDO_FB_H_
++
++#define MIDO_FB_PHYS            0x90001000      /* first pixel; NOT 2 MiB aligned */
++#define MIDO_FB_WIDTH           1080
++#define MIDO_FB_HEIGHT          1920
++#define MIDO_FB_BPP             3               /* bytes per pixel, memory order B,G,R */
++#define MIDO_FB_STRIDE          3240            /* bytes per line == WIDTH * BPP */
++#define MIDO_FB_SIZE            0x5EEC00        /* STRIDE * HEIGHT */
++
++/* L2 blocks (2 MiB each, 4K granule) needed to map the whole buffer. */
++#define MIDO_FB_BLOCK_SIZE      0x200000
++#define MIDO_FB_BLOCK_PA        0x90000000      /* MIDO_FB_PHYS rounded down to a block */
++#define MIDO_FB_BLOCK_OFFSET    0x1000          /* MIDO_FB_PHYS - MIDO_FB_BLOCK_PA */
++#define MIDO_FB_BLOCKS          3               /* 0x90000000..0x90600000 */
++
++/*
++ * Bootstrap page-table pages (osfmk/arm/pmap/pmap.h BOOTSTRAP_TABLE_SIZE is
++ * ARM_PGBYTES * this; pmap.h is not assembler-visible). 8 stock pages plus
++ * the L2 table for the framebuffer's L1 slot.
++ */
++#define MIDO_BOOTSTRAP_PAGES    10
++
++/* Text colours, byte values in memory order. White on dark blue. */
++#define MIDO_FB_FG_B            0xff
++#define MIDO_FB_FG_G            0xff
++#define MIDO_FB_FG_R            0xff
++#define MIDO_FB_BG_B            0x40
++#define MIDO_FB_BG_G            0x18
++#define MIDO_FB_BG_R            0x08
++
++#endif /* _ARM64_MIDO_FB_H_ */
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index 997a4ab..6f3a629 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -26,6 +26,7 @@
+ #include <pexpert/arm/consistent_debug.h>
+ #include <pexpert/arm64/board_config.h>
+ #include <arm64/proc_reg.h>
++#include <arm64/mido_fb.h>
+ #include <pexpert/arm/protos.h>
+ #include <kern/sched_prim.h>
+ #if HIBERNATION
+@@ -697,6 +698,174 @@ register_serial_functions(struct pe_serial_functions *fns)
+ 	gPESF = fns;
+ }
+ 
++/*****************************************************************************/
++
++/*
++ * mido: framebuffer "serial" for boards with no usable UART. kprintf output
++ * is drawn onto the boot framebuffer, 24bpp, byte order in memory B,G,R, the
++ * lk2nd continuous splash (1080x1920, stride 3240, physical 0x90001000, which
++ * is NOT page-block aligned). Geometry comes from boot_args.Video as parsed
++ * into PE_state.video; the ADT node "mido-fbcon" (reg = <phys size>, width,
++ * height, stride) is only a fallback. Constants live in <arm64/mido_fb.h>.
++ * Lines wrap back to the top instead of scrolling (scrolling would read back
++ * from non-cacheable memory); the line after the cursor is kept blank so the
++ * newest output is easy to find.
++ */
++
++extern unsigned char iso_font[256 * 16];
++
++#define FBCON_SCALE     2
++
++static volatile uint8_t *fbcon_base;
++static uint32_t fbcon_width, fbcon_height, fbcon_stride;
++static uint32_t fbcon_cols, fbcon_rows, fbcon_col, fbcon_row;
++
++static inline void
++fbcon_put_pixel(volatile uint8_t *p, int fg)
++{
++	/* One 24bpp pixel, bytes in memory order: blue, green, red. */
++	p[0] = fg ? MIDO_FB_FG_B : MIDO_FB_BG_B;
++	p[1] = fg ? MIDO_FB_FG_G : MIDO_FB_BG_G;
++	p[2] = fg ? MIDO_FB_FG_R : MIDO_FB_BG_R;
++}
++
++static void
++fbcon_clear_row(uint32_t row)
++{
++	for (uint32_t y = row * 16 * FBCON_SCALE; y < (row + 1) * 16 * FBCON_SCALE; y++) {
++		volatile uint8_t *line = fbcon_base + (size_t)y * fbcon_stride;
++		for (uint32_t x = 0; x < fbcon_width; x++) {
++			fbcon_put_pixel(line + (size_t)x * MIDO_FB_BPP, 0);
++		}
++	}
++}
++
++static void
++fbcon_newline(void)
++{
++	fbcon_col = 0;
++	fbcon_row = (fbcon_row + 1) % fbcon_rows;
++	fbcon_clear_row(fbcon_row);
++	fbcon_clear_row((fbcon_row + 1) % fbcon_rows);
++}
++
++static void
++fbcon_init(void)
++{
++	fbcon_cols = fbcon_width / (8 * FBCON_SCALE);
++	fbcon_rows = fbcon_height / (16 * FBCON_SCALE);
++	fbcon_col = fbcon_row = 0;
++	for (uint32_t r = 0; r < fbcon_rows; r++) {
++		fbcon_clear_row(r);
++	}
++}
++
++static unsigned int
++fbcon_transmit_ready(void)
++{
++	return 1;
++}
++
++static void
++fbcon_transmit_data(uint8_t c)
++{
++	if (c == '\r') {
++		fbcon_col = 0;
++		return;
++	}
++	if (c == '\n') {
++		fbcon_newline();
++		return;
++	}
++	if (fbcon_col >= fbcon_cols) {
++		fbcon_newline();
++	}
++	const unsigned char *glyph = iso_font + c * 16;
++	uint32_t x0 = fbcon_col * 8 * FBCON_SCALE, y0 = fbcon_row * 16 * FBCON_SCALE;
++	for (uint32_t gy = 0; gy < 16; gy++) {
++		for (uint32_t sy = 0; sy < FBCON_SCALE; sy++) {
++			volatile uint8_t *line = fbcon_base + (size_t)(y0 + gy * FBCON_SCALE + sy) * fbcon_stride +
++			    (size_t)x0 * MIDO_FB_BPP;
++			for (uint32_t gx = 0; gx < 8; gx++) {
++				int fg = (glyph[gy] & (1u << gx)) != 0;
++				for (uint32_t sx = 0; sx < FBCON_SCALE; sx++) {
++					fbcon_put_pixel(line + (size_t)(gx * FBCON_SCALE + sx) * MIDO_FB_BPP, fg);
++				}
++			}
++		}
++	}
++	fbcon_col++;
++}
++
++static unsigned int
++fbcon_receive_ready(void)
++{
++	return 0;
++}
++
++static uint8_t
++fbcon_receive_data(void)
++{
++	return 0;
++}
++
++SECURITY_READ_ONLY_LATE(static struct pe_serial_functions) mido_fbcon_serial_functions =
++{
++	.init = fbcon_init,
++	.transmit_ready = fbcon_transmit_ready,
++	.transmit_data = fbcon_transmit_data,
++	.receive_ready = fbcon_receive_ready,
++	.receive_data = fbcon_receive_data,
++	.device = SERIAL_MIDO_FBCON
++};
++
++static void
++fbcon_probe(void)
++{
++	uint64_t phys = 0, length = 0;
++
++	/* Preferred source: boot_args.Video (physical base, 24bpp). */
++	if (PE_state.video.v_baseAddr != 0 && PE_state.video.v_depth == (MIDO_FB_BPP * 8) &&
++	    PE_state.video.v_width != 0 && PE_state.video.v_height != 0 &&
++	    PE_state.video.v_rowBytes >= PE_state.video.v_width * MIDO_FB_BPP) {
++		phys = PE_state.video.v_baseAddr;
++		fbcon_width = (uint32_t)PE_state.video.v_width;
++		fbcon_height = (uint32_t)PE_state.video.v_height;
++		fbcon_stride = (uint32_t)PE_state.video.v_rowBytes;
++		length = (uint64_t)fbcon_stride * fbcon_height;
++	} else {
++		DTEntry entry;
++		uint64_t const *reg;
++		uint32_t const *val;
++		unsigned int size;
++
++		if (SecureDTFindEntry("name", "mido-fbcon", &entry) != kSuccess ||
++		    SecureDTGetProperty(entry, "reg", (void const **)&reg, &size) != kSuccess || size < 16) {
++			return;
++		}
++		if (SecureDTGetProperty(entry, "width", (void const **)&val, &size) == kSuccess) {
++			fbcon_width = *val;
++		}
++		if (SecureDTGetProperty(entry, "height", (void const **)&val, &size) == kSuccess) {
++			fbcon_height = *val;
++		}
++		if (SecureDTGetProperty(entry, "stride", (void const **)&val, &size) == kSuccess) {
++			fbcon_stride = *val;
++		}
++		phys = reg[0];
++		length = reg[1];
++	}
++	if (!fbcon_width || !fbcon_height || fbcon_stride < fbcon_width * MIDO_FB_BPP ||
++	    length < (uint64_t)fbcon_stride * fbcon_height) {
++		return;
++	}
++	/* The splash is 4 KiB aligned (0x90001000) but not 2 MiB aligned; io_map is page granular. */
++	fbcon_base = (volatile uint8_t *)ml_io_map_wcomb(phys, (vm_size_t)length);
++	if (fbcon_base != NULL) {
++		register_serial_functions(&mido_fbcon_serial_functions);
++	}
++}
++
+ #if HIBERNATION
+ /**
+  * Transitions the serial driver into a mode that can be run in the hibernation
+@@ -777,6 +946,8 @@ serial_init(void)
+ 
+ 	PE_parse_boot_argn("disable-uart-irq", &disable_uart_irq, sizeof(disable_uart_irq));
+ 
++	fbcon_probe();
++
+ #ifdef PI3_UART
+ 	if (SecureDTFindEntry("name", "gpio", &entryP) == kSuccess) {
+ 		SecureDTGetProperty(entryP, "reg", (void const **)&reg_prop, &prop_size);
+diff --git a/pexpert/pexpert/arm/protos.h b/pexpert/pexpert/arm/protos.h
+index 404b50b..33c95f0 100644
+--- a/pexpert/pexpert/arm/protos.h
++++ b/pexpert/pexpert/arm/protos.h
+@@ -47,7 +47,8 @@ typedef enum serial_device {
+ 	SERIAL_DOCKCHANNEL=0x2,
+ 	SERIAL_PI3_UART=0x4,
+ 	SERIAL_VMAPPLE_UART=0x8,
+-	SERIAL_DCC_UART=0x10
++	SERIAL_DCC_UART=0x10,
++	SERIAL_MIDO_FBCON=0x20
+ } serial_device_t;
+ 
+ kern_return_t serial_irq_enable(serial_device_t device);

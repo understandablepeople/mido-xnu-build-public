@@ -1,0 +1,430 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index e26a1d7..cefc724 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -56,6 +56,7 @@
+ #include <pexpert/arm/consistent_debug.h>
+ #include <pexpert/device_tree.h>
+ #include <arm64/proc_reg.h>
++#include <arm64/mido_early.h>
+ #include <arm/pmap.h>
+ #include <arm/caches_internal.h>
+ #include <arm/cpu_internal.h>
+@@ -346,6 +347,8 @@ arm_init(
+ 	DTEntry chosen = NULL;
+ 	unsigned int dt_entry_size = 0;
+ 
++	mido_early_mark(1, "arm_init entered (MMU on)");
++
+ 	arm_setup_pre_sign();
+ 
+ 	arm_slide_rebase_and_sign_image();
+@@ -362,6 +365,7 @@ arm_init(
+ #endif /* defined(HAS_APPLE_PAC) */
+ 
+ 	PE_init_platform(FALSE, args); /* Get platform expert set up */
++	mido_early_mark(2, "PE_init_platform done");
+ 
+ #if __arm64__
+ 	configure_timer_apple_regs();
+@@ -423,6 +427,7 @@ arm_init(
+ #endif
+ 
+ 	ml_parse_cpu_topology();
++	mido_early_mark(3, "ml_parse_cpu_topology done");
+ 
+ 
+ 	master_cpu = ml_get_boot_cpu_number();
+@@ -453,11 +458,13 @@ arm_init(
+ 	 */
+ 	thread->machine.preemption_count = 0;
+ 	cpu_bootstrap();
++	mido_early_mark(4, "cpu_bootstrap done");
+ 
+ 	rtclock_early_init();
+ 
+ 	kernel_debug_string_early("kernel_startup_bootstrap");
+ 	kernel_startup_bootstrap();
++	mido_early_mark(5, "kernel_startup_bootstrap done");
+ 
+ 	/*
+ 	 * Initialize the timer callout world
+@@ -466,6 +473,7 @@ arm_init(
+ 
+ 	cpu_init();
+ 
++	mido_early_mark(6, "cpu_init done");
+ 	processor_bootstrap();
+ 
+ 	if (PE_parse_boot_argn("maxmem", &maxmem, sizeof(maxmem))) {
+@@ -513,6 +521,7 @@ arm_init(
+ 	__builtin_arm_wsr("pan", 1);
+ #endif  /* __ARM_PAN_AVAILABLE__ */
+ 
++	mido_early_mark(7, "entering arm_vm_init");
+ 	arm_vm_init(xmaxmem, args);
+ 
+ 	if (debug_boot_arg) {
+diff --git a/osfmk/arm/pmap/pmap.h b/osfmk/arm/pmap/pmap.h
+index 75f3db0..753072a 100644
+--- a/osfmk/arm/pmap/pmap.h
++++ b/osfmk/arm/pmap/pmap.h
+@@ -112,7 +112,11 @@
+  */
+ #define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 34)
+ #else /* defined(ARM_LARGE_MEMORY) */
+-#define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 8)
++/*
++ * mido adds one L2 page for the 3-block early framebuffer mapping (start.s),
++ * so 10 pages instead of 8 (L1 x2, up to 3+3 L2 for RAM, 1 for the fb).
++ */
++#define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 10) /* keep == MIDO_BOOTSTRAP_PAGES in arm64/mido_fb.h */
+ #endif /* defined(ARM_LARGE_MEMORY) */
+ 
+ typedef uint64_t tt_entry_t; /* translation table entry type */
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+index d89b0f1..d1a7508 100644
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -41,6 +41,7 @@
+ #include <machine/atomic.h>
+ #include <arm64/proc_reg.h>
+ #include <arm64/lowglobals.h>
++#include <arm64/mido_early.h>
+ #include <arm/cpu_data_internal.h>
+ #include <arm/misc_protos.h>
+ #include <pexpert/arm64/boot.h>
+@@ -2145,6 +2146,8 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 
+ 	ml_enable_monitor();
+ 
++	/* The framebuffer VA=PA mapping belongs to the outgoing TTBR0. */
++	mido_early_disable();
+ 	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
+ 
+ 	flush_mmu_tlb();
+diff --git a/osfmk/arm64/mido_early.c b/osfmk/arm64/mido_early.c
+new file mode 100644
+index 0000000..1637c52
+--- /dev/null
++++ b/osfmk/arm64/mido_early.c
+@@ -0,0 +1,153 @@
++/*
++ * mido (Redmi Note 4X) bootstrap console. No allocation, locks, ADT parsing or
++ * per-CPU state: panic() can reach this before a current thread exists.
++ * start.s maps the splash framebuffer VA=PA as three 2MiB Normal Non-Cacheable
++ * L2 blocks (4K granule); pixels are 24bpp, bytes in memory order B,G,R.
++ * All geometry comes from <arm64/mido_fb.h>.
++ * Stop using that mapping before arm_vm_init tears down bootstrap TTBR0.
++ */
++#include <arm64/mido_early.h>
++#include <arm64/mido_fb.h>
++
++#if defined(MIDO)
++#include <stdint.h>
++#include <kern/misc_protos.h>
++
++#define EARLY_FB ((volatile uint8_t *)(uintptr_t)MIDO_FB_PHYS)
++#define EARLY_WIDTH ((unsigned int)MIDO_FB_WIDTH)
++#define EARLY_HEIGHT ((unsigned int)MIDO_FB_HEIGHT)
++#define EARLY_STRIDE ((unsigned int)MIDO_FB_STRIDE)	/* bytes per line */
++#define EARLY_BPP ((unsigned int)MIDO_FB_BPP)
++#define EARLY_SCALE 2u
++#define EARLY_CELL_W (8u * EARLY_SCALE)
++#define EARLY_CELL_H (16u * EARLY_SCALE)
++#define EARLY_ROWS ((EARLY_HEIGHT - 32u) / EARLY_CELL_H)
++#define EARLY_COLS (EARLY_WIDTH / EARLY_CELL_W)
++
++_Static_assert(MIDO_FB_STRIDE == MIDO_FB_WIDTH * MIDO_FB_BPP, "fb stride");
++_Static_assert(MIDO_FB_SIZE == MIDO_FB_STRIDE * MIDO_FB_HEIGHT, "fb size");
++_Static_assert(MIDO_FB_BLOCK_OFFSET + MIDO_FB_SIZE <= MIDO_FB_BLOCKS * MIDO_FB_BLOCK_SIZE, "fb blocks");
++_Static_assert(MIDO_FB_BLOCK_PA + MIDO_FB_BLOCK_OFFSET == MIDO_FB_PHYS, "fb offset");
++
++extern unsigned char iso_font[256 * 16];
++
++/* Initialized data must remain writable until disable, including panics. */
++static unsigned int early_row, early_col;
++static unsigned int early_started, early_disabled, early_panicking;
++
++static inline void
++early_put_pixel(volatile uint8_t *p, uint8_t b, uint8_t g, uint8_t r)
++{
++	p[0] = b;
++	p[1] = g;
++	p[2] = r;
++}
++
++static void
++mido_early_clear_row(void)
++{
++	for (unsigned int y = 0; y < EARLY_CELL_H; y++) {
++		volatile uint8_t *line = EARLY_FB + (size_t)(early_row * EARLY_CELL_H + y) * EARLY_STRIDE;
++		for (unsigned int x = 0; x < EARLY_WIDTH; x++) {
++			early_put_pixel(line + x * EARLY_BPP, MIDO_FB_BG_B, MIDO_FB_BG_G, MIDO_FB_BG_R);
++		}
++	}
++}
++
++void
++mido_early_putc(char c)
++{
++	if (early_disabled) {
++		return;
++	}
++	if (!early_started) {
++		early_started = 1;
++		mido_early_clear_row();
++	}
++	if (c == '\r') {
++		early_col = 0;
++		return;
++	}
++	if (c == '\n' || early_col == EARLY_COLS) {
++		early_col = 0;
++		early_row = (early_row + 1) % EARLY_ROWS;
++		mido_early_clear_row();
++		if (c == '\n') {
++			return;
++		}
++	}
++	const unsigned char *glyph = iso_font + (unsigned char)c * 16;
++	for (unsigned int gy = 0; gy < 16; gy++) {
++		for (unsigned int sy = 0; sy < EARLY_SCALE; sy++) {
++			volatile uint8_t *line = EARLY_FB +
++			    (size_t)(early_row * EARLY_CELL_H + gy * EARLY_SCALE + sy) * EARLY_STRIDE +
++			    (size_t)early_col * EARLY_CELL_W * EARLY_BPP;
++			for (unsigned int gx = 0; gx < 8; gx++) {
++				int fg = (glyph[gy] & (1u << gx)) != 0;
++				for (unsigned int sx = 0; sx < EARLY_SCALE; sx++) {
++					volatile uint8_t *p = line + (gx * EARLY_SCALE + sx) * EARLY_BPP;
++					if (fg) {
++						early_put_pixel(p, MIDO_FB_FG_B, MIDO_FB_FG_G, MIDO_FB_FG_R);
++					} else {
++						early_put_pixel(p, MIDO_FB_BG_B, MIDO_FB_BG_G, MIDO_FB_BG_R);
++					}
++				}
++			}
++		}
++	}
++	early_col++;
++}
++
++static void
++mido_early_string(const char *s)
++{
++	while (*s) {
++		mido_early_putc(*s++);
++	}
++}
++
++void
++mido_early_mark(unsigned int stage, const char *label)
++{
++	if (early_disabled || stage > 8) {
++		return;
++	}
++	/* Progress bar: green with a stage-dependent red component (B,G,R = 0,ff,r). */
++	uint8_t red = (uint8_t)(stage * 28u);
++	for (unsigned int y = EARLY_HEIGHT - 32; y < EARLY_HEIGHT; y++) {
++		for (unsigned int x = stage * 64; x < (stage + 1) * 64; x++) {
++			early_put_pixel(EARLY_FB + (size_t)y * EARLY_STRIDE + x * EARLY_BPP, 0x00, 0xff, red);
++		}
++	}
++	__asm__ volatile("dsb sy" ::: "memory");
++	mido_early_string("MIDO EARLY ");
++	mido_early_putc((char)('0' + stage));
++	mido_early_string(": ");
++	mido_early_string(label);
++	mido_early_putc('\n');
++}
++
++void
++mido_early_panic(const char *fmt, va_list *args)
++{
++	if (early_disabled || early_panicking) {
++		return;
++	}
++	early_panicking = 1;
++	mido_early_string("\nMIDO EARLY PANIC: ");
++	va_list copy;
++	va_copy(copy, *args);
++	_doprnt(fmt, &copy, mido_early_putc, 16);
++	va_end(copy);
++	mido_early_putc('\n');
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++void
++mido_early_disable(void)
++{
++	mido_early_mark(8, "leaving bootstrap TTBR0");
++	early_disabled = 1;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++#endif /* MIDO */
+diff --git a/osfmk/arm64/mido_early.h b/osfmk/arm64/mido_early.h
+new file mode 100644
+index 0000000..9006835
+--- /dev/null
++++ b/osfmk/arm64/mido_early.h
+@@ -0,0 +1,22 @@
++/* Early screen diagnostics, valid only while the bootstrap TTBR0 is live. */
++#ifndef _ARM64_MIDO_EARLY_H_
++#define _ARM64_MIDO_EARLY_H_
++
++#include <pexpert/arm64/board_config.h>
++#include <stdarg.h>
++
++#if defined(MIDO)
++void mido_early_mark(unsigned int stage, const char *label);
++void mido_early_putc(char c);
++void mido_early_panic(const char *fmt, va_list *args);
++void mido_early_disable(void);
++#else
++static inline void mido_early_mark(unsigned int stage, const char *label)
++{
++	(void)stage;
++	(void)label;
++}
++static inline void mido_early_disable(void) {}
++#endif
++
++#endif
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 746314d..19b536c 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -30,6 +30,7 @@
+ #include <arm64/machine_machdep.h>
+ #include <arm64/proc_reg.h>
+ #include <pexpert/arm64/board_config.h>
++#include <arm64/mido_fb.h>
+ #include <mach_assert.h>
+ #include <machine/asm.h>
+ #include "assym.s"
+@@ -463,6 +464,29 @@ LEXT(start_first_cpu)
+ 	mov		x20, x0
+ 	mov		x21, #0
+ 
++#if defined(MIDO)
++	/*
++	 * Stage 0: white 64x32 band at the bottom-left of the 24bpp splash
++	 * (MMU off, physical addresses). No stack or page tables needed.
++	 * Three byte stores per pixel; the geometry is in <arm64/mido_fb.h>.
++	 */
++	MOV64	x0, (MIDO_FB_PHYS + (MIDO_FB_HEIGHT - 32) * MIDO_FB_STRIDE)
++	mov		w1, #0xff
++	mov		x2, #32
++	mov		x4, #(MIDO_FB_STRIDE)
++Lmido_mark_row:
++	mov		x3, #(64 * MIDO_FB_BPP)
++	mov		x5, x0
++Lmido_mark_byte:
++	strb	w1, [x5], #1
++	subs	x3, x3, #1
++	b.ne	Lmido_mark_byte
++	add		x0, x0, x4
++	subs	x2, x2, #1
++	b.ne	Lmido_mark_row
++	dsb		sy
++#endif
++
+ 	// Set low reset vector before attempting any loads
+ 	adrp	x0, EXT(LowExceptionVectorBase)@page
+ 	add		x0, x0, EXT(LowExceptionVectorBase)@pageoff
+@@ -609,6 +633,57 @@ Lkernelcache_base_found:
+ 	lsr		x5,  x24, #(ARM_TT_L2_SHIFT)
+ 	create_bootstrap_mapping x14, x15, x5, x3, x2, x9, x10, x11, x12, x13
+ 
++#if defined(MIDO)
++	/*
++	 * Splash framebuffer: MIDO_FB_BLOCKS (3) consecutive 2MiB Normal-NC L2
++	 * blocks, V=P, starting at MIDO_FB_BLOCK_PA (0x90000000); the buffer
++	 * itself starts MIDO_FB_BLOCK_OFFSET (0x1000) into the first block.
++	 * 4K granule: the RAM V=P window (phys_base 0x20000000+) lives in L1
++	 * indices 0/1 (below 0x80000000), the framebuffer in L1 index 2, so
++	 * normally it needs its own L2 table. If a larger RAM window already
++	 * created an L2 table for that L1 slot, reuse it instead of replacing
++	 * it. x2 is the last bootstrap page handed out; the new page is zeroed
++	 * here and MIDO_BOOTSTRAP_PAGES (== BOOTSTRAP_TABLE_SIZE) leaves room for it.
++	 * Scratch: x5-x13, x16, x17 (all dead by now).
++	 */
++	MOV64	x5, MIDO_FB_BLOCK_PA
++	and		x6, x5, #(ARM_TT_L1_INDEX_MASK)
++	lsr		x6, x6, #(ARM_TT_L1_SHIFT)
++	ldr		x7, [x1, x6, lsl #TTE_SHIFT]		// V=P L1 entry for the framebuffer
++	tbz		x7, #0, Lmido_fb_new_l2				// invalid: allocate an L2 table
++	and		x9, x7, #(ARM_TTE_TABLE_MASK)		// RAM window already owns this L2 table
++	b		Lmido_fb_have_l2
++Lmido_fb_new_l2:
++	add		x2, x2, PGBYTES						// next free bootstrap page
++	MOV64	x17, (MIDO_BOOTSTRAP_PAGES * PGBYTES)	// must still be inside bootstrap_pagetables
++	add		x17, x25, x17
++	add		x16, x2, PGBYTES
++	cmp		x16, x17
++	b.hi	.									// out of bootstrap table pages: hang (stage 0 band stays visible)
++	mov		x9, x2
++	mov		x16, #(TTE_PGENTRIES)
++	mov		x17, x9
++Lmido_fb_zero_l2:
++	str		xzr, [x17], #(1 << TTE_SHIFT)
++	subs	x16, x16, #1
++	b.ne	Lmido_fb_zero_l2
++	/* create_l1_table_entry(virt_base, L1 table, L2 table, scratch1, scratch2, scratch3) */
++	create_l1_table_entry	x5, x1, x9, x10, x11, x12
++Lmido_fb_have_l2:
++	MOV64	x11, (ARM_TTE_TYPE_BLOCK | ARM_TTE_VALID | ARM_TTE_BLOCK_SH(SH_OUTER_MEMORY) | ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_WRITECOMB) | ARM_TTE_BLOCK_AF | ARM_TTE_BLOCK_PNX | ARM_TTE_BLOCK_NX)
++	orr		x11, x11, x5						// output address of block 0
++	and		x12, x5, #(ARM_TT_L2_INDEX_MASK)
++	lsr		x12, x12, #(ARM_TT_L2_SHIFT)
++	add		x13, x9, x12, lsl #(TTE_SHIFT)		// L2 slot of block 0
++	mov		x16, #(MIDO_FB_BLOCKS)
++	mov		x17, #(ARM_TT_L2_SIZE)
++Lmido_fb_block:
++	str		x11, [x13], #(1 << TTE_SHIFT)
++	add		x11, x11, x17						// next 2MiB of output address
++	subs	x16, x16, #1
++	b.ne	Lmido_fb_block
++#endif
++
+ 	/* Ensure TTEs are visible */
+ 	dsb		ish
+ 
+diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
+index c40d57b..05ec6ea 100644
+--- a/osfmk/conf/files.arm64
++++ b/osfmk/conf/files.arm64
+@@ -40,6 +40,7 @@ osfmk/arm64/dbgwrap.c		standard
+ osfmk/arm/arm_timer.c		standard
+ osfmk/arm/arm_init.c	optional config_pmap_ppl
+ osfmk/arm64/arm_vm_init.c	optional config_pmap_ppl
++osfmk/arm64/mido_early.c	standard
+ osfmk/arm64/arm64_hypercall.c	standard
+ osfmk/arm/io_map.c		standard
+ osfmk/arm64/loose_ends.c	standard
+diff --git a/osfmk/kern/debug.c b/osfmk/kern/debug.c
+index 0a00656..bb452b3 100644
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -84,6 +84,9 @@
+ #include <stdatomic.h>
+ #include <sys/pgo.h>
+ #include <console/serial_protos.h>
++#if defined(__arm64__)
++#include <arm64/mido_early.h>
++#endif
+ #include <IOKit/IOBSD.h>
+ 
+ #if !(MACH_KDP && CONFIG_KDP_INTERACTIVE_DEBUGGING)
+@@ -1069,6 +1072,11 @@ panic_trap_to_debugger(const char *panic_format_str, va_list *panic_args, unsign
+ {
+ #pragma clang diagnostic pop
+ 
++#if defined(MIDO)
++	/* No CPU/thread/debugger state is required for this first panic copy. */
++	mido_early_panic(panic_format_str, panic_args);
++#endif
++
+ #if defined(__x86_64__) && (DEVELOPMENT || DEBUG)
+ 	read_lbr();
+ #endif

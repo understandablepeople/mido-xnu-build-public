@@ -1,0 +1,362 @@
+diff --git a/iokit/Kernel/arm/MidoCPU.cpp b/iokit/Kernel/arm/MidoCPU.cpp
+index 65017a6..cf61343 100644
+--- a/iokit/Kernel/arm/MidoCPU.cpp
++++ b/iokit/Kernel/arm/MidoCPU.cpp
+@@ -214,18 +214,20 @@ MidoCPU::signalCPU(IOCPU *target)
+ 	if (logical >= topology->num_cpus) {
+ 		panic("MIDO CPU: invalid SGI target %u", logical);
+ 	}
+-	/* Use the TARGET affinity, including Aff1, never the sender's MPIDR. */
++	/*
++	 * GICv2: the SGI target is a CPU-interface bitmask, not an MPIDR.
++	 * MSM8953 wires the cores as interface (Aff1 * 4 + Aff0): cluster 0 =
++	 * interfaces 0-3, cluster 1 = 4-7 (to be confirmed with GICD_ITARGETSR0
++	 * read on each core during the SMP milestone).
++	 */
+ 	uint64_t mpidr = topology->cpus[logical].phys_id;
+-	unsigned int aff0 = mpidr & 0xff;
+-	if (aff0 >= 16) {
+-		panic("MIDO CPU: SGI target requires unsupported range selector");
++	unsigned int iface = (unsigned int)(((mpidr >> 8) & 0xff) * 4 + (mpidr & 0xff));
++	if (iface >= 8) {
++		panic("MIDO CPU: SGI target has no GIC CPU interface");
+ 	}
+-	uint64_t sgi = (((mpidr >> 32) & 0xff) << 48) |
+-	    (((mpidr >> 16) & 0xff) << 32) |
+-	    (((mpidr >> 8) & 0xff) << 16) |
+-	    ((uint64_t)MIDO_IPI_SGI << 24) | (1ULL << aff0);
+ 	__builtin_arm_dsb(DSB_ISHST);
+-	__builtin_arm_wsr64("ICC_SGI1R_EL1", sgi);
++	*(volatile uint32_t *)(mido_gicd_base + GICD_SGIR) =
++	    (1U << (16 + iface)) | MIDO_IPI_SGI;
+ 	__builtin_arm_isb(ISB_SY);
+ }
+ 
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+index e4d15a9..0733564 100644
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -61,7 +61,7 @@ MACHINE_FLAGS_ARM64_T8103 = -DARM64_BOARD_CONFIG_T8103                  -mcpu=ap
+ MACHINE_FLAGS_ARM64_T6000 = -DARM64_BOARD_CONFIG_T6000 		-mcpu=apple-a14
+ MACHINE_FLAGS_ARM64_VMAPPLE = -DARM64_BOARD_CONFIG_VMAPPLE              -march=armv8.5a
+ MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
+-MACHINE_FLAGS_ARM64_MIDO = -DARM64_BOARD_CONFIG_MIDO                -march=armv8.2-a+crypto
++MACHINE_FLAGS_ARM64_MIDO = -DARM64_BOARD_CONFIG_MIDO                -march=armv8-a+crc+crypto -mtune=cortex-a53
+ 
+ 
+ #
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index c6a2ee3..4c9e9de 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1847,6 +1847,25 @@ handle_simd_trap(arm_saved_state_t *state, uint32_t esr)
+ 	__builtin_unreachable();
+ }
+ 
++#if defined(MIDO)
++/*
++ * GICv2 CPU interface: IAR/EOIR are MMIO registers (the GICv3 system
++ * registers do not exist on the Cortex-A53). GICC is banked per CPU and
++ * sits at the same address on every core.
++ */
++static inline uint32_t
++mido_gic_ack(void)
++{
++	return *(volatile uint32_t *)(mido_gicc_base + GICC_IAR);
++}
++
++static inline void
++mido_gic_eoi(uint32_t iar)
++{
++	*(volatile uint32_t *)(mido_gicc_base + GICC_EOIR) = iar;
++}
++#endif /* MIDO */
++
+ void
+ sleh_irq(arm_saved_state_t *state)
+ {
+@@ -1861,8 +1880,8 @@ sleh_irq(arm_saved_state_t *state)
+ 	 * mido: TrustZone owns GIC Group 0, so the timer and IPIs that other
+ 	 * ARM64 targets take as FIQs arrive here as Group 1 IRQs.
+ 	 */
+-	uint64_t iar = __builtin_arm_rsr64("ICC_IAR1_EL1");
+-	uint32_t intid = (uint32_t)(iar & 0xFFFFFF);
++	uint32_t iar = mido_gic_ack();
++	uint32_t intid = iar & GICC_IAR_INTID_MASK;
+ 
+ 	if (intid >= 1020 && intid <= 1023) {
+ 		return; /* spurious */
+@@ -1873,11 +1892,11 @@ sleh_irq(arm_saved_state_t *state)
+ 		INTERRUPT_MASKED_DEBUG_START(rtclock_intr, DBG_INTR_TYPE_TIMER);
+ 		rtclock_intr(TRUE);
+ 		INTERRUPT_MASKED_DEBUG_END();
+-		__builtin_arm_wsr64("ICC_EOIR1_EL1", iar);
++		mido_gic_eoi(iar);
+ 	} else if (intid < 16) {
+ 		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_IPI);
+ 		/* Ack before handling so an IPI raised meanwhile is not lost */
+-		__builtin_arm_wsr64("ICC_EOIR1_EL1", iar);
++		mido_gic_eoi(iar);
+ 		__builtin_arm_isb(ISB_SY);
+ 		cpu_signal_handler();
+ 	} else {
+@@ -1888,7 +1907,7 @@ sleh_irq(arm_saved_state_t *state)
+ 			    cdp->interrupt_nub,
+ 			    intid);
+ 		}
+-		__builtin_arm_wsr64("ICC_EOIR1_EL1", iar);
++		mido_gic_eoi(iar);
+ 	}
+ 	__builtin_arm_isb(ISB_SY);
+ #else
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index c98c90f..64752d2 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -306,11 +306,7 @@ LEXT(mido_secondary_entry)
+ 	mov		x1, #3
+ 	msr		CNTHCTL_EL2, x1
+ 	msr		CNTVOFF_EL2, xzr
+-	/* Permit ICC_SRE_EL1 and GIC CPU interface system-register access. */
+-	mrs		x1, ICC_SRE_EL2
+-	orr		x1, x1, #1
+-	orr		x1, x1, #8
+-	msr		ICC_SRE_EL2, x1
++	/* GICv2: the CPU interface is MMIO, there is no ICC_SRE_EL2. */
+ 	/* Known Armv8 SCTLR RES1 bits, M/C/I off, little endian. */
+ 	MOV64	x1, 0x30d00800
+ 	msr		SCTLR_EL1, x1
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index b77ff88..3730a65 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -222,6 +222,105 @@ pe_init_fiq()
+ 	__builtin_arm_isb(ISB_SY);
+ #endif /* MIDO */
+ }
++#elif HAS_GIC_V2
++
++/* Phone default; the device tree may override it (virtual-timer-intid). */
++SECURITY_READ_ONLY_LATE(uint32_t) mido_vtimer_intid = MIDO_VTIMER_INTID;
++
++vm_offset_t mido_gicd_base;
++vm_offset_t mido_gicc_base;
++
++#define gicd_read32(offset) (*((volatile uint32_t *)(mido_gicd_base + (offset))))
++#define gicd_write32(offset, data) (*((volatile uint32_t *)(mido_gicd_base + (offset))) = (data))
++#define gicc_write32(offset, data) (*((volatile uint32_t *)(mido_gicc_base + (offset))) = (data))
++
++void
++pe_init_fiq()
++{
++	int error;
++	DTEntry entry;
++
++	/*
++	 * mido_gicd_base is 0 only before the boot processor maps the GIC.
++	 * Avoid SecureDT* on secondary processors (not thread-safe).
++	 */
++	if (!mido_gicd_base) {
++		error = SecureDTLookupEntry(NULL, "/arm-io/gic", &entry);
++		if (error != kSuccess) {
++			panic("%s: cannot find GIC node in DT", __func__);
++		}
++
++		void const *prop;
++		unsigned int prop_size;
++		error = SecureDTGetProperty(entry, "reg", &prop, &prop_size);
++		if (error != kSuccess) {
++			panic("%s: cannot find GIC MMIO regions in DT", __func__);
++		}
++
++		/* GICD base, GICD size, GICC base, GICC size */
++		if (prop_size < 4 * sizeof(uint64_t)) {
++			panic("%s: incorrect reg property size in GIC DT node; expecting 32 bytes but got %u bytes", __func__, prop_size);
++		}
++
++		/* Read only on the boot CPU, before the GIC and RO-late lockdown. */
++		void const *timer_prop;
++		unsigned int timer_size;
++		if (SecureDTGetProperty(entry, "virtual-timer-intid", &timer_prop, &timer_size) == kSuccess) {
++			if (timer_size != sizeof(uint32_t)) {
++				panic("%s: invalid virtual-timer-intid size %u", __func__, timer_size);
++			}
++			uint32_t intid = *(const uint32_t *)timer_prop;
++			if (intid < 16 || intid >= 32) {
++				panic("%s: virtual timer INTID %u is not a PPI", __func__, intid);
++			}
++			mido_vtimer_intid = intid;
++		}
++		kprintf("MIDO GIC: v2 virtual timer INTID %u
++", mido_vtimer_intid);
++
++		vm_offset_t soc_base_phys = pe_arm_get_soc_base_phys();
++
++		uint64_t const gicd_base_prop = ((uint64_t const *) prop)[0];
++		uint64_t const gicd_size_prop = ((uint64_t const *) prop)[1];
++		uint64_t const gicc_base_prop = ((uint64_t const *) prop)[2];
++		uint64_t const gicc_size_prop = ((uint64_t const *) prop)[3];
++
++		vm_offset_t gicc = ml_io_map(soc_base_phys + gicc_base_prop, gicc_size_prop);
++		if (!gicc) {
++			panic("%s: cannot map GICC region", __func__);
++		}
++		mido_gicc_base = gicc;
++
++		/* Publish gicd last: it is the "initialized" flag for other CPUs. */
++		vm_offset_t gicd = ml_io_map(soc_base_phys + gicd_base_prop, gicd_size_prop);
++		if (!gicd) {
++			panic("%s: cannot map GICD region", __func__);
++		}
++		__builtin_arm_dmb(DMB_ISH);
++		mido_gicd_base = gicd;
++	}
++
++	/*
++	 * Per-CPU banked state: Group 1 (non-secure) interrupts only. The
++	 * non-secure view of IGROUPR may read as zero; delivery still works
++	 * because TrustZone configured the PPIs/SGIs as non-secure.
++	 */
++	gicd_write32(GICD_IGROUPR0, 0xFFFFFFFF);
++	for (unsigned int i = 0; i < 32; i += 4) {
++		gicd_write32(GICD_IPRIORITYR0 + i, 0xA0A0A0A0);
++	}
++	gicd_write32(GICD_ISENABLER0, (1U << mido_vtimer_intid) | (1U << MIDO_IPI_SGI));
++
++	gicc_write32(GICC_PMR, 0xFF);
++	gicc_write32(GICC_BPR, 0);
++	/* Enable Group 1 forwarding; EOImode = 0 so EOIR also deactivates. */
++	gicc_write32(GICC_CTLR, GICC_CTLR_ENABLEGRP1);
++
++	/* The distributor was left enabled by lk2nd; make sure of it. */
++	gicd_write32(GICD_CTLR, gicd_read32(GICD_CTLR) | GICD_CTLR_ENABLEGRP1);
++	__builtin_arm_dsb(DSB_SY);
++	__builtin_arm_isb(ISB_SY);
++}
+ #else
+ void
+ pe_init_fiq()
+diff --git a/pexpert/pexpert/arm/protos.h b/pexpert/pexpert/arm/protos.h
+index 3acfafe..438e157 100644
+--- a/pexpert/pexpert/arm/protos.h
++++ b/pexpert/pexpert/arm/protos.h
+@@ -38,6 +38,8 @@ int uart_getc(void);
+ void pe_init_fiq(void);
+ #if defined(ARM64_BOARD_CONFIG_MIDO)
+ extern uint32_t mido_vtimer_intid;
++extern vm_offset_t mido_gicd_base;
++extern vm_offset_t mido_gicc_base;
+ #endif
+ 
+ #ifdef PRIVATE
+diff --git a/pexpert/pexpert/arm64/MIDO.h b/pexpert/pexpert/arm64/MIDO.h
+index 71ce6bd..3f778e8 100644
+--- a/pexpert/pexpert/arm64/MIDO.h
++++ b/pexpert/pexpert/arm64/MIDO.h
+@@ -1,12 +1,13 @@
+ /*
+- * Board config for the Redmi Note 10 Pro ("mido", Qualcomm SM7150 /
+- * Snapdragon 732G): Kryo 470 = Cortex-A76 + Cortex-A55, ARMv8.2, no PAC.
++ * Board config for the Redmi Note 4X ("mido", Qualcomm MSM8953 /
++ * Snapdragon 625): 8x Cortex-A53, ARMv8.0 (no PAN, no LSE, no PAC),
++ * 4 KiB pages ONLY (ID_AA64MMFR0.TGran16 = 0 on this CPU) and a GICv2
++ * (qcom,msm-qgic2).
+  *
+  * Generic ARM like BCM2837 (no APPLE_ARM64_ARCH_FAMILY: none of Apple's
+- * implementation-defined system registers exist), 16K pages and GICv3 like
+- * VMAPPLE. Unlike VMAPPLE the GIC has two security states (GICD_TYPER
+- * SecurityExtn=1): Group 0 belongs to TrustZone, so every interrupt,
+- * including the timer, is a Group 1 IRQ taken through sleh_irq().
++ * implementation-defined system registers exist), 4K pages like BCM2837.
++ * The GIC has two security states: Group 0 belongs to TrustZone, so every
++ * interrupt, including the timer, is a Group 1 IRQ taken through sleh_irq().
+  */
+ 
+ #ifndef _PEXPERT_ARM64_MIDO_H
+@@ -33,51 +34,41 @@
+ #define __ARM_DEBUG__             7
+ #define __ARM_ENABLE_SWAP__       1
+ #define __ARM_V8_CRYPTO_EXTENSIONS__ 1
+-#define __ARM_PAN_AVAILABLE__     1
+-#define __ARM_16K_PG__            1
++#define __ARM64_PMAP_SUBPAGE_L1__ 1
+ 
+-#define HAS_GIC_V3                1
++#define HAS_GIC_V2                1
+ 
+ #ifndef ASSEMBLER
+ #define PLATFORM_PANIC_LOG_DISABLED
+ #endif /* ! ASSEMBLER */
+ 
+ /*
+- * Qualcomm numbers the architected timer PPIs 1/2/3/0 (secure phys, phys,
+- * virt, hyp) instead of the usual 13/14/11/10: the virtual timer XNU uses
+- * (CNTV) is INTID 16 + 3 = 19.
++ * MSM8953 lists the architected timer PPIs in the order secure phys (PPI 2),
++ * phys (3), virt (4), hyp (1): the virtual timer XNU uses (CNTV) is
++ * INTID 16 + 4 = 20 (device tree: arm,armv8-timer interrupts).
+  */
+-#define MIDO_VTIMER_INTID        19
++#define MIDO_VTIMER_INTID        20
+ #define MIDO_IPI_SGI             1       // SGI used for cross-CPU signals
+ 
+ #define GIC_SPURIOUS_IRQ          1023    // IRQ no. for GIC spurious interrupt
+ 
+-#define GICR_PE_SIZE              0x20000 // Size of each redistributor region
+-
+-/* GICv3 register definitions; see GICv3 spec (Arm IHI 0069G) */
+-#define GICD_CTLR                 0x0
+-
+-/* Non-secure view of GICD_CTLR (DS=0) */
++/* GICv2 distributor (non-secure view); see Arm IHI 0048B */
++#define GICD_CTLR                 0x000
++#define GICD_IGROUPR0             0x080
++#define GICD_ISENABLER0           0x100
++#define GICD_ICENABLER0           0x180
++#define GICD_IPRIORITYR0          0x400
++#define GICD_ITARGETSR0           0x800
++#define GICD_SGIR                 0xF00
+ #define GICD_CTLR_ENABLEGRP1      0x1
+-#define GICD_CTLR_ENABLEGRP1A     0x2
+-#define GICD_CTLR_ARE_NS          0x10
+-#define GICD_CTLR_RWP             0x80000000
+-
+-#define GICR_TYPER                              0x08
+-#define GICR_WAKER                              0x14
+-#define GICR_IGROUPR0                           0x10080
+-#define GICR_ISENABLER0                         0x10100
+-#define GICR_IPRIORITYR0                        0x10400
+-
+-#define GICR_TYPER_AFFINITY_VALUE_SHIFT         32
+-#define GICR_TYPER_LAST                         0x10
+-
+-#define GICR_WAKER_PROCESSORSLEEP               0x2
+-#define GICR_WAKER_CHILDRENASLEEP               0x4
+-
+-#define ICC_CTLR_EOIMODE                        0x2
+ 
+-#define ICC_SRE_SRE                             0x1
+-/* End of GICv3 register definitions */
++/* GICv2 CPU interface (banked per CPU, same address on every core) */
++#define GICC_CTLR                 0x000
++#define GICC_PMR                  0x004
++#define GICC_BPR                  0x008
++#define GICC_IAR                  0x00C
++#define GICC_EOIR                 0x010
++#define GICC_CTLR_ENABLEGRP1      0x1
++#define GICC_IAR_INTID_MASK       0x3FF
+ 
+ #endif /* ! _PEXPERT_ARM64_MIDO_H */
+diff --git a/pexpert/pexpert/arm64/board_config.h b/pexpert/pexpert/arm64/board_config.h
+index a38363a..561366f 100644
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -102,7 +102,7 @@
+ 
+ #define MAX_L2_CLINE                   6
+ #define MAX_CPUS                       8
+-#define MAX_CPU_CLUSTERS               1
++#define MAX_CPU_CLUSTERS               2
+ 
+ #define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
+ 
