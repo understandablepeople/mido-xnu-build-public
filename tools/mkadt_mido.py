@@ -33,7 +33,7 @@ FB_SIZE = FB_STRIDE * FB_H	# 0x5EEC00
 CANVAS_W, CANVAS_H = 1242, 2208	# iPhone 8 Plus @3x (414x736 pt)
 DISPLAY_SCALE = 3
 # eMMC host (sdhci@7824900) [DTB]
-SDHC, SDHC_SIZE = 0x07824900, 0x500
+SDHC, SDHC_SIZE = 0x07824000, 0x1000  # MCI core at +0, SDHCI block at +0x900 (bsd/dev/mido_mmc.c)
 TIMEBASE = 19200000
 CPU_HZ = 2016000000		# descriptive only
 ECID = int.from_bytes(b'MIDO', 'big') << 32 | 1	# synthetic: 'MIDO' + 1 (not the phone's)
@@ -205,7 +205,7 @@ if __name__ == '__main__':
     ap.add_argument('--mem-size', type=lambda s: int(s, 0), default=MEM_SIZE)
     ap.add_argument('--product', default=D21AP_ADT, help='raw D21AP ADT to copy /product from')
     ap.add_argument('--no-product', action='store_true')
-    ap.add_argument('--sdhc', action='store_true', help='add the optional mido-sdhc node')
+    ap.add_argument('--sdhc', action='store_true', default=True, help='add the optional mido-sdhc node')
     ap.add_argument('--seed-hex', help='64-byte random-seed as hex (default: os.urandom)')
     ap.add_argument('--dump', action='store_true')
     a = ap.parse_args()

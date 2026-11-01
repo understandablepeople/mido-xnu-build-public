@@ -1,0 +1,789 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+index fd3aef1..12d6bee 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -104,6 +104,7 @@ bsd/dev/dtrace/fasttrap.c		optional config_dtrace
+ bsd/dev/random/randomdev.c		standard
+ 
+ bsd/dev/memdev.c			standard
++bsd/dev/mido_mmc.c			standard
+ bsd/dev/mem.c				standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+diff --git a/bsd/dev/mido_mmc.c b/bsd/dev/mido_mmc.c
+new file mode 100644
+index 0000000..5e0dd76
+--- /dev/null
++++ b/bsd/dev/mido_mmc.c
+@@ -0,0 +1,742 @@
++/*
++ * MIDO internal eMMC root device (Qualcomm SDHCI "sdhci-msm", polled PIO).
++ *
++ * lk2nd leaves the host in HS400/HS200 with the DLL enabled and the card asleep;
++ * in that state no command is accepted (measured on the handset). This driver
++ * therefore re-initialises the controller and the card from reset using the
++ * sequence validated by the standalone bring-up probe (mido/m1/m7.c):
++ *   1. core HC_MODE_EN, controller reset, vendor DLL/VENDOR_SPEC (hc+0x100/0x10c)
++ *      moved to legacy selection,
++ *   2. 1.8 V, 400 kHz, CMD0, CMD1 loop, CMD2, CMD3, CMD7,
++ *   3. EXT_CSD, 8-bit bus, high-speed timing, 50 MHz,
++ *   4. GPT lookup of one partition by name (boot-arg mmcroot=, default "userdata").
++ * The partition is exposed as the BSD disk mmcroot0 (rmmcroot0), 512-byte sectors.
++ * Root on it with rd=mmcroot0. Writes are refused unless boot-arg mmcrw=1 and are
++ * always confined to the partition.
++ *
++ * The device tree node /mido-sdhc supplies reg = <0x07824000 0x1000>: the MCI core
++ * registers at +0x000 and the SDHCI register block at +0x900.
++ */
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/buf.h>
++#include <sys/conf.h>
++#include <sys/disk.h>
++#include <sys/errno.h>
++#include <sys/proc.h>
++#include <sys/uio.h>
++#include <miscfs/devfs/devfs.h>
++#include <kern/locks.h>
++#include <kern/clock.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
++#include <pexpert/device_tree.h>
++#include <libkern/libkern.h>
++
++/* osfmk/arm/machine_routines.h, not exported to the BSD layer */
++extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
++
++#define MMC_HC_OFF      0x900u          /* SDHCI block inside the mapped window */
++#define MMC_CORE_HCMODE 0x78u
++
++/* SDHCI registers (relative to the SDHCI block) */
++#define SD_BLKSIZE      0x04
++#define SD_BLKCNT       0x06
++#define SD_ARG          0x08
++#define SD_TRNMOD       0x0c
++#define SD_CMD          0x0e
++#define SD_RESP0        0x10
++#define SD_BUF          0x20
++#define SD_PRES         0x24
++#define SD_HCTL         0x28
++#define SD_PWR          0x29
++#define SD_CLK          0x2c
++#define SD_TOUT         0x2e
++#define SD_SWRST        0x2f
++#define SD_INT          0x30
++#define SD_INTEN        0x34
++#define SD_SIGEN        0x38
++#define SD_HC2          0x3e
++#define SD_VND_DLLCFG   0x100
++#define SD_VND_SPEC     0x10c
++
++#define INT_CC          0x0001u
++#define INT_TC          0x0002u
++#define INT_BWR         0x0010u
++#define INT_BRR         0x0020u
++#define INT_ERR         0x8000u
++
++#define SECSIZE         512u
++#define MAX_BLOCKS_CMD  128u            /* 64 KiB per command */
++#define CMD_TIMEOUT_NS  (1000ull * NSEC_PER_MSEC)
++#define DATA_TIMEOUT_NS (2000ull * NSEC_PER_MSEC)
++
++static struct {
++	vm_offset_t regs;               /* kernel VA of the mapped window (core at +0) */
++	uint64_t first, nsect;          /* partition, in 512-byte sectors */
++	int bmajor, cmajor;
++	dev_t bdev;
++	bool writable;
++	bool ready;
++} mm;
++
++static LCK_GRP_DECLARE(mido_mmc_grp, "mido_mmc");
++static LCK_MTX_DECLARE(mido_mmc_lock, &mido_mmc_grp);
++
++static inline uint32_t
++core_rd(uint32_t off)
++{
++	return *(volatile uint32_t *)(mm.regs + off);
++}
++
++static inline void
++core_wr(uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(mm.regs + off) = v;
++}
++
++static inline uint32_t
++sd_rd32(uint32_t off)
++{
++	return *(volatile uint32_t *)(mm.regs + MMC_HC_OFF + off);
++}
++
++static inline uint16_t
++sd_rd16(uint32_t off)
++{
++	return *(volatile uint16_t *)(mm.regs + MMC_HC_OFF + off);
++}
++
++static inline uint8_t
++sd_rd8(uint32_t off)
++{
++	return *(volatile uint8_t *)(mm.regs + MMC_HC_OFF + off);
++}
++
++static inline void
++sd_wr32(uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(mm.regs + MMC_HC_OFF + off) = v;
++}
++
++static inline void
++sd_wr16(uint32_t off, uint16_t v)
++{
++	*(volatile uint16_t *)(mm.regs + MMC_HC_OFF + off) = v;
++}
++
++static inline void
++sd_wr8(uint32_t off, uint8_t v)
++{
++	*(volatile uint8_t *)(mm.regs + MMC_HC_OFF + off) = v;
++}
++
++static uint64_t
++deadline_after(uint64_t ns)
++{
++	uint64_t abs;
++	nanoseconds_to_absolutetime(ns, &abs);
++	return mach_absolute_time() + abs;
++}
++
++static void
++mmc_cmd_reset(void)
++{
++	for (int n = 0; n < 1000; n++) {
++		sd_wr8(SD_SWRST, 0x06);         /* reset CMD + DAT lines */
++		if (!(sd_rd8(SD_SWRST) & 0x06)) {
++			break;
++		}
++		delay(10);
++	}
++	sd_wr32(SD_INT, 0xffffffffu);
++}
++
++/*
++ * Issue one command and wait for command complete (and busy end for R1b).
++ * flags: bits 1:0 response (0 none, 1 R2, 2 R1/R3, 3 R1b), bit 3 CRC, bit 4 index,
++ * bit 5 data present. Returns 0 or an errno.
++ */
++static int
++mmc_cmd(unsigned idx, uint32_t arg, unsigned flags, unsigned mode, uint32_t resp[4])
++{
++	uint64_t dl = deadline_after(CMD_TIMEOUT_NS);
++
++	while (sd_rd32(SD_PRES) & 3u) {         /* CMD / DAT inhibit */
++		if (mach_absolute_time() > dl) {
++			mmc_cmd_reset();
++			return EBUSY;
++		}
++		delay(10);
++	}
++	sd_wr32(SD_INT, 0xffffffffu);
++	sd_wr32(SD_ARG, arg);
++	sd_wr32(SD_TRNMOD, (uint32_t)mode | ((uint32_t)((idx << 8) | flags) << 16));
++	uint32_t st;
++	for (;;) {
++		st = sd_rd32(SD_INT);
++		if (st & (INT_ERR | INT_CC)) {
++			break;
++		}
++		if (mach_absolute_time() > dl) {
++			mmc_cmd_reset();
++			return ETIMEDOUT;
++		}
++		delay(5);
++	}
++	if (st & INT_ERR) {
++		mmc_cmd_reset();
++		return EIO;
++	}
++	if (resp) {
++		resp[0] = sd_rd32(SD_RESP0);
++		resp[1] = sd_rd32(SD_RESP0 + 4);
++		resp[2] = sd_rd32(SD_RESP0 + 8);
++		resp[3] = sd_rd32(SD_RESP0 + 12);
++	}
++	sd_wr32(SD_INT, INT_CC);
++	if ((flags & 3u) == 3u && !(flags & 0x20u)) {   /* R1b without data: wait busy end */
++		dl = deadline_after(DATA_TIMEOUT_NS);
++		while (!(sd_rd32(SD_INT) & INT_TC)) {
++			if (mach_absolute_time() > dl) {
++				mmc_cmd_reset();
++				return ETIMEDOUT;
++			}
++			delay(5);
++		}
++		sd_wr32(SD_INT, INT_TC);
++	}
++	return 0;
++}
++
++static void
++mmc_set_clock(unsigned n)               /* SDCLK = 200 MHz / (2*n), n = 0: base clock */
++{
++	uint16_t v = (uint16_t)(((n & 0xffu) << 8) | (((n >> 8) & 3u) << 6) | 1u);
++
++	sd_wr16(SD_CLK, 0);
++	sd_wr16(SD_CLK, v);
++	for (int i = 0; i < 20000 && !(sd_rd16(SD_CLK) & 2u); i++) {
++		delay(10);
++	}
++	sd_wr16(SD_CLK, v | 4u);
++}
++
++/* Poll CMD13 until the card is back in transfer state and ready for data. */
++static int
++mmc_wait_ready(void)
++{
++	uint64_t dl = deadline_after(DATA_TIMEOUT_NS * 5);
++	uint32_t resp[4];
++
++	for (;;) {
++		int e = mmc_cmd(13, 1u << 16, 0x1a, 0, resp);
++		if (e) {
++			return e;
++		}
++		if ((resp[0] & (1u << 8)) && ((resp[0] >> 9) & 0xf) == 4) {
++			return 0;
++		}
++		if (mach_absolute_time() > dl) {
++			return ETIMEDOUT;
++		}
++		delay(100);
++	}
++}
++
++/* Read `count` (<= MAX_BLOCKS_CMD) sectors at lba into dst. */
++static int
++mmc_read_sectors(uint64_t lba, uint32_t count, uint8_t *dst)
++{
++	uint32_t resp[4], st = 0;
++	int e;
++
++	if (lba > UINT32_MAX || count == 0 || count > MAX_BLOCKS_CMD) {
++		return EINVAL;
++	}
++	sd_wr16(SD_BLKSIZE, SECSIZE);
++	sd_wr16(SD_BLKCNT, (uint16_t)count);
++	if (count == 1) {
++		e = mmc_cmd(17, (uint32_t)lba, 0x3a, 0x0010, resp);
++	} else {
++		e = mmc_cmd(18, (uint32_t)lba, 0x3a, 0x0036, resp);
++	}
++	if (e) {
++		return e;
++	}
++	for (uint32_t b = 0; b < count; b++) {
++		uint64_t dl = deadline_after(DATA_TIMEOUT_NS);
++		for (;;) {
++			st = sd_rd32(SD_INT);
++			if (st & (INT_ERR | INT_BRR)) {
++				break;
++			}
++			if (mach_absolute_time() > dl) {
++				mmc_cmd_reset();
++				return ETIMEDOUT;
++			}
++			delay(2);
++		}
++		if (st & INT_ERR) {
++			mmc_cmd_reset();
++			return EIO;
++		}
++		sd_wr32(SD_INT, INT_BRR);
++		for (uint32_t i = 0; i < SECSIZE; i += 4) {
++			uint32_t v = sd_rd32(SD_BUF);
++			memcpy(dst + b * SECSIZE + i, &v, 4);
++		}
++	}
++	uint64_t dl = deadline_after(DATA_TIMEOUT_NS);
++	while (!(sd_rd32(SD_INT) & INT_TC)) {
++		if (sd_rd32(SD_INT) & INT_ERR) {
++			mmc_cmd_reset();
++			return EIO;
++		}
++		if (mach_absolute_time() > dl) {
++			mmc_cmd_reset();
++			return ETIMEDOUT;
++		}
++		delay(2);
++	}
++	sd_wr32(SD_INT, 0xffffffffu);
++	return 0;
++}
++
++/* Write `count` (<= MAX_BLOCKS_CMD) sectors from src to lba. Caller has bounds-checked. */
++static int
++mmc_write_sectors(uint64_t lba, uint32_t count, const uint8_t *src)
++{
++	uint32_t resp[4], st = 0;
++	int e;
++
++	if (lba > UINT32_MAX || count == 0 || count > MAX_BLOCKS_CMD) {
++		return EINVAL;
++	}
++	sd_wr16(SD_BLKSIZE, SECSIZE);
++	sd_wr16(SD_BLKCNT, (uint16_t)count);
++	if (count == 1) {
++		e = mmc_cmd(24, (uint32_t)lba, 0x3a, 0x0000, resp);
++	} else {
++		e = mmc_cmd(25, (uint32_t)lba, 0x3a, 0x0026, resp);
++	}
++	if (e) {
++		return e;
++	}
++	for (uint32_t b = 0; b < count; b++) {
++		uint64_t dl = deadline_after(DATA_TIMEOUT_NS);
++		for (;;) {
++			st = sd_rd32(SD_INT);
++			if (st & (INT_ERR | INT_BWR)) {
++				break;
++			}
++			if (mach_absolute_time() > dl) {
++				mmc_cmd_reset();
++				return ETIMEDOUT;
++			}
++			delay(2);
++		}
++		if (st & INT_ERR) {
++			mmc_cmd_reset();
++			return EIO;
++		}
++		sd_wr32(SD_INT, INT_BWR);
++		for (uint32_t i = 0; i < SECSIZE; i += 4) {
++			uint32_t v;
++			memcpy(&v, src + b * SECSIZE + i, 4);
++			sd_wr32(SD_BUF, v);
++		}
++	}
++	uint64_t dl = deadline_after(DATA_TIMEOUT_NS * 5);
++	while (!(sd_rd32(SD_INT) & INT_TC)) {
++		if (sd_rd32(SD_INT) & INT_ERR) {
++			mmc_cmd_reset();
++			return EIO;
++		}
++		if (mach_absolute_time() > dl) {
++			mmc_cmd_reset();
++			return ETIMEDOUT;
++		}
++		delay(2);
++	}
++	sd_wr32(SD_INT, 0xffffffffu);
++	return mmc_wait_ready();
++}
++
++static int
++mmc_init_card(void)
++{
++	uint32_t resp[4] = { 0, 0, 0, 0 };
++	int e;
++
++	/* 1. HC mode, controller reset, vendor DLL/spec registers to legacy selection. */
++	core_wr(MMC_CORE_HCMODE, core_rd(MMC_CORE_HCMODE) | 1u);
++	sd_wr8(SD_SWRST, 1);
++	for (int n = 0; n < 10000 && (sd_rd8(SD_SWRST) & 1u); n++) {
++		delay(10);
++	}
++	sd_wr32(SD_VND_DLLCFG, (sd_rd32(SD_VND_DLLCFG) | (1u << 29)) &
++	    ~((1u << 16) | (1u << 17) | (1u << 18) | (1u << 19)));
++	sd_wr32(SD_VND_SPEC, (sd_rd32(SD_VND_SPEC) & ~((3u << 8) | (1u << 18) | (7u << 19))) | (2u << 8));
++	sd_wr32(SD_INTEN, 0xffffffffu);         /* status bits visible, no interrupt signals: polled */
++	sd_wr32(SD_SIGEN, 0);
++	sd_wr8(SD_PWR, 0);
++	delay(1000);
++	sd_wr8(SD_PWR, 0x0b);                   /* 1.8 V, bus power on (eMMC VCCQ) */
++	sd_wr8(SD_TOUT, 0x0e);
++	sd_wr8(SD_HCTL, 0);                     /* 1-bit, normal speed */
++	sd_wr16(SD_HC2, 0);
++	mmc_set_clock(250);                     /* 400 kHz */
++	delay(5000);
++
++	/* 2. identification */
++	if ((e = mmc_cmd(0, 0, 0x00, 0, NULL))) {
++		return e;
++	}
++	delay(2000);
++	int n;
++	for (n = 0; n < 200; n++) {
++		e = mmc_cmd(1, 0x40ff8080u, 0x02, 0, resp);
++		if (e || (resp[0] & 0x80000000u)) {
++			break;
++		}
++		delay(5000);
++	}
++	if (e) {
++		return e;
++	}
++	if (n == 200) {
++		return ETIMEDOUT;
++	}
++	if ((e = mmc_cmd(2, 0, 0x09, 0, resp)) ||
++	    (e = mmc_cmd(3, 1u << 16, 0x1a, 0, resp)) ||
++	    (e = mmc_cmd(7, 1u << 16, 0x1b, 0, resp))) {
++		return e;
++	}
++
++	/* 3. EXT_CSD, 8-bit bus, high speed 50 MHz */
++	{
++		static uint8_t ext[SECSIZE];
++		sd_wr16(SD_BLKSIZE, SECSIZE);
++		sd_wr16(SD_BLKCNT, 1);
++		if ((e = mmc_cmd(8, 0, 0x3a, 0x0010, resp))) {
++			return e;
++		}
++		for (n = 0; n < 200000 && !(sd_rd32(SD_INT) & (INT_BRR | INT_ERR)); n++) {
++			delay(2);
++		}
++		if (!(sd_rd32(SD_INT) & INT_BRR)) {
++			mmc_cmd_reset();
++			return EIO;
++		}
++		sd_wr32(SD_INT, INT_BRR);
++		for (uint32_t i = 0; i < SECSIZE; i += 4) {
++			uint32_t v = sd_rd32(SD_BUF);
++			memcpy(ext + i, &v, 4);
++		}
++		for (n = 0; n < 200000 && !(sd_rd32(SD_INT) & INT_TC); n++) {
++			delay(2);
++		}
++		sd_wr32(SD_INT, 0xffffffffu);
++		uint32_t sec_count;
++		memcpy(&sec_count, ext + 212, 4);
++		printf("MIDO MMC: eMMC rev %u, %u sectors (%u MiB)\n", ext[192], sec_count, sec_count >> 11);
++	}
++	if ((e = mmc_cmd(6, (3u << 24) | (183u << 16) | (2u << 8), 0x1b, 0, resp))) {
++		return e;
++	}
++	sd_wr8(SD_HCTL, sd_rd8(SD_HCTL) | 0x20);        /* 8-bit */
++	if ((e = mmc_cmd(6, (3u << 24) | (185u << 16) | (1u << 8), 0x1b, 0, resp))) {
++		return e;
++	}
++	sd_wr8(SD_HCTL, sd_rd8(SD_HCTL) | 0x04);        /* high speed */
++	mmc_set_clock(2);                               /* 50 MHz */
++	delay(2000);
++	return mmc_wait_ready();
++}
++
++static int
++mmc_find_partition(const char *want)
++{
++	uint8_t hdr[SECSIZE], ent[SECSIZE];
++	uint64_t entry_lba;
++	uint32_t nent, esz;
++	int e = mmc_read_sectors(1, 1, hdr);
++
++	if (e) {
++		return e;
++	}
++	if (memcmp(hdr, "EFI PART", 8) != 0) {
++		printf("MIDO MMC: no GPT\n");
++		return ENXIO;
++	}
++	memcpy(&entry_lba, hdr + 72, 8);
++	memcpy(&nent, hdr + 80, 4);
++	memcpy(&esz, hdr + 84, 4);
++	if (esz != 128 || nent == 0 || nent > 256) {
++		printf("MIDO MMC: unsupported GPT entries %u x %u\n", nent, esz);
++		return ENXIO;
++	}
++	for (uint32_t i = 0; i < nent; i++) {
++		if (i % (SECSIZE / 128) == 0 && (e = mmc_read_sectors(entry_lba + i / (SECSIZE / 128), 1, ent))) {
++			return e;
++		}
++		const uint8_t *p = ent + (i % (SECSIZE / 128)) * 128;
++		char name[37];
++		unsigned c;
++		for (c = 0; c < 36; c++) {
++			uint16_t ch = (uint16_t)(p[56 + 2 * c] | p[57 + 2 * c] << 8);
++			if (ch == 0 || ch > 0x7f) {
++				break;
++			}
++			name[c] = (char)ch;
++		}
++		name[c] = 0;
++		if (strcmp(name, want) != 0) {
++			continue;
++		}
++		uint64_t first, last;
++		memcpy(&first, p + 32, 8);
++		memcpy(&last, p + 40, 8);
++		if (last < first) {
++			return ENXIO;
++		}
++		mm.first = first;
++		mm.nsect = last - first + 1;
++		return 0;
++	}
++	printf("MIDO MMC: no GPT partition named \"%s\"\n", want);
++	return ENOENT;
++}
++
++static int
++mido_mmc_open(__unused dev_t dev, int flags, __unused int devtype, __unused struct proc *p)
++{
++	if (!mm.ready) {
++		return ENXIO;
++	}
++	return ((flags & FWRITE) && !mm.writable) ? EROFS : 0;
++}
++
++static int
++mido_mmc_close(__unused dev_t dev, __unused int flags, __unused int devtype, __unused struct proc *p)
++{
++	return 0;
++}
++
++static void
++mido_mmc_strategy(buf_t bp)
++{
++	int error = 0;
++	caddr_t vaddr = NULL;
++	uint64_t sector = (uint64_t)buf_blkno(bp);
++	uint32_t count = buf_count(bp);
++	bool is_read = (buf_flags(bp) & B_READ) != 0;
++
++	buf_setresid(bp, count);
++	if (!is_read && !mm.writable) {
++		error = EROFS;
++		goto done;
++	}
++	if ((count % SECSIZE) != 0 || sector > mm.nsect || count / SECSIZE > mm.nsect - sector) {
++		error = EINVAL;     /* confined to the partition */
++		goto done;
++	}
++	if (count == 0) {
++		goto done;
++	}
++	if (buf_map(bp, &vaddr)) {
++		error = EIO;
++		goto done;
++	}
++	lck_mtx_lock(&mido_mmc_lock);
++	for (uint32_t done = 0; done < count / SECSIZE;) {
++		uint32_t n = MIN(count / SECSIZE - done, MAX_BLOCKS_CMD);
++		uint8_t *p = (uint8_t *)vaddr + (uint64_t)done * SECSIZE;
++		error = is_read ? mmc_read_sectors(mm.first + sector + done, n, p)
++		    : mmc_write_sectors(mm.first + sector + done, n, p);
++		if (error) {
++			break;
++		}
++		done += n;
++		buf_setresid(bp, count - done * SECSIZE);
++	}
++	lck_mtx_unlock(&mido_mmc_lock);
++	buf_unmap(bp);
++done:
++	if (error) {
++		buf_seterror(bp, error);
++	}
++	buf_biodone(bp);
++}
++
++static int
++mido_mmc_ioctl(__unused dev_t dev, u_long cmd, caddr_t data, __unused int flag,
++    __unused struct proc *p, int is_char)
++{
++	uint32_t *f = (uint32_t *)data;
++	uint64_t *o = (uint64_t *)data;
++
++	switch (cmd) {
++	case DKIOCGETBLOCKSIZE:
++	case DKIOCGETPHYSICALBLOCKSIZE:
++		*f = SECSIZE;
++		return 0;
++	case DKIOCSETBLOCKSIZE:
++		if (is_char) {
++			return ENODEV;
++		}
++		return (*f == SECSIZE) ? 0 : EINVAL;
++	case DKIOCGETBLOCKCOUNT:
++		*o = mm.nsect;
++		return 0;
++	case DKIOCISWRITABLE:
++		*f = mm.writable ? 1 : 0;
++		return 0;
++	case DKIOCGETMAXBLOCKCOUNTREAD:
++	case DKIOCGETMAXBLOCKCOUNTWRITE:
++		*o = MAX_BLOCKS_CMD;
++		return 0;
++	case DKIOCGETMAXSEGMENTCOUNTREAD:
++	case DKIOCGETMAXSEGMENTCOUNTWRITE:
++		*o = 1;
++		return 0;
++	case DKIOCSYNCHRONIZE:
++	case DKIOCSYNCHRONIZECACHE:
++		return 0;       /* writes are completed (CMD13 ready) before they return */
++	default:
++		return ENOTTY;
++	}
++}
++
++static int
++mido_mmc_bioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
++{
++	return mido_mmc_ioctl(dev, cmd, data, flag, p, 0);
++}
++
++static int
++mido_mmc_cioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
++{
++	return mido_mmc_ioctl(dev, cmd, data, flag, p, 1);
++}
++
++static int
++mido_mmc_psize(__unused dev_t dev)
++{
++	return mm.ready ? (int)MIN(mm.nsect, (uint64_t)INT_MAX) : -1;
++}
++
++static int
++mido_mmc_read(dev_t dev, struct uio *uio, __unused int ioflag)
++{
++	return physio(mido_mmc_strategy, NULL, dev, B_READ, minphys, uio, (int)SECSIZE);
++}
++
++static int
++mido_mmc_write(dev_t dev, struct uio *uio, __unused int ioflag)
++{
++	if (!mm.writable) {
++		return EROFS;
++	}
++	return physio(mido_mmc_strategy, NULL, dev, B_WRITE, minphys, uio, (int)SECSIZE);
++}
++
++static const struct bdevsw mido_mmc_bdevsw = {
++	.d_open     = mido_mmc_open,
++	.d_close    = mido_mmc_close,
++	.d_strategy = mido_mmc_strategy,
++	.d_ioctl    = mido_mmc_bioctl,
++	.d_dump     = eno_dump,
++	.d_psize    = mido_mmc_psize,
++	.d_type     = D_DISK,
++};
++
++static const struct cdevsw mido_mmc_cdevsw = {
++	.d_open       = mido_mmc_open,
++	.d_close      = mido_mmc_close,
++	.d_read       = mido_mmc_read,
++	.d_write      = mido_mmc_write,
++	.d_ioctl      = mido_mmc_cioctl,
++	.d_stop       = eno_stop,
++	.d_reset      = eno_reset,
++	.d_ttys       = NULL,
++	.d_select     = eno_select,
++	.d_mmap       = eno_mmap,
++	.d_strategy   = eno_strat,
++	.d_reserved_1 = eno_getc,
++	.d_reserved_2 = eno_putc,
++	.d_type       = D_DISK,
++};
++
++static int
++mido_mmc_init(void)
++{
++	DTEntry node;
++	uintptr_t const *reg = NULL;
++	unsigned int size = 0;
++	char want[64] = "userdata";
++	uint32_t rw = 0;
++	int error;
++
++	if (SecureDTLookupEntry(NULL, "/mido-sdhc", &node) != kSuccess ||
++	    SecureDTGetProperty(node, "reg", (void const **)&reg, &size) != kSuccess ||
++	    size < 2 * sizeof(uintptr_t)) {
++		printf("MIDO MMC: no /mido-sdhc node in the device tree\n");
++		return ENXIO;
++	}
++	PE_parse_boot_argn("mmcroot", want, sizeof(want));
++	if (PE_parse_boot_argn("mmcrw", &rw, sizeof(rw)) && rw) {
++		mm.writable = true;
++	}
++	mm.regs = ml_io_map(reg[0], reg[1]);
++	if (!mm.regs) {
++		return ENOMEM;
++	}
++
++	lck_mtx_lock(&mido_mmc_lock);
++	error = mmc_init_card();
++	if (error) {
++		printf("MIDO MMC: card initialisation failed: %d\n", error);
++	} else {
++		error = mmc_find_partition(want);
++	}
++	lck_mtx_unlock(&mido_mmc_lock);
++	if (error) {
++		return error;
++	}
++
++	mm.bmajor = bdevsw_add(-1, &mido_mmc_bdevsw);
++	if (mm.bmajor < 0) {
++		return ENXIO;
++	}
++	mm.cmajor = cdevsw_add_with_bdev(-1, &mido_mmc_cdevsw, mm.bmajor);
++	if (mm.cmajor < 0) {
++		return ENXIO;
++	}
++	mm.bdev = makedev(mm.bmajor, 0);
++	devfs_make_node(mm.bdev, DEVFS_BLOCK, UID_ROOT, GID_OPERATOR, 0640, "mmcroot0");
++	devfs_make_node(makedev(mm.cmajor, 0), DEVFS_CHAR, UID_ROOT, GID_OPERATOR, 0640, "rmmcroot0");
++	mm.ready = true;
++	printf("MIDO MMC: \"%s\": first sector 0x%llx, %llu MiB, %s\n", want, mm.first,
++	    mm.nsect >> 11, mm.writable ? "READ-WRITE (confined to the partition)" : "read-only");
++	return 0;
++}
++
++/* Root device for rd=mmcroot0 (IOFindBSDRoot). */
++int mido_mmc_rootdev(dev_t *dev);
++
++int
++mido_mmc_rootdev(dev_t *dev)
++{
++	if (!mm.ready) {
++		int error = mido_mmc_init();
++		if (error) {
++			return error;
++		}
++	}
++	*dev = mm.bdev;
++	return 0;
++}
++#endif /* ARM64_BOARD_CONFIG_MIDO */
+diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
+index 5219fb0..f93c3e9 100644
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -766,6 +766,24 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
+ 		}
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++//
++//	MIDO: root on a GPT partition of the internal eMMC (bsd/dev/mido_mmc.c)
++//
++	if (strcmp(rdBootVar, "mmcroot0") == 0) {
++		extern int mido_mmc_rootdev(dev_t *dev);
++		OSSafeReleaseNULL(matching);
++		int mmc_error = mido_mmc_rootdev(root);
++		if (mmc_error) {
++			panic("IOFindBSDRoot: MIDO eMMC root %s unavailable: %d", rdBootVar, mmc_error);
++		}
++		strlcpy(rootName, rdBootVar, rootNameSize);
++		IOLog("BSD root: %s, major %d, minor %d\n", rootName, major(*root), minor(*root));
++		*oflags = 0;
++		goto iofrootx;
++	}
++#endif
++
+ //
+ //	Now check if we are trying to root on a memory device
+ //
