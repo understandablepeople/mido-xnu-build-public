@@ -450,3 +450,33 @@ Full local runtime sources, frozen snapshots and reports are retained in
 modules and assembly are published here; they alone are not a complete
 carrier builder. Handset validation remains pending. No full XNU/iOS boot
 or installable-system readiness is claimed.
+
+The subsequent handset photograph confirmed `XNU TTBR1 RESTORED`, zero
+failure mask and all 16 groups PASS, including `TTBR1 ROUNDTRIP PASS`.
+Photo SHA-256: `556a53014e1ae39e8e0897dd761f2141f35ca014095ab2043a4590890d6e5faa`.
+This confirms that diagnostic, not physical coherency or full boot.
+
+## Reversible TTBR0 Diagnostic
+
+The next independent opt-in runs both original setters and the original caller
+TLBI/DSB/ISB, stopping at `arm_vm_init + 0x1404` before root publication.
+The final TTBR0 root is empty: its 512 descriptors are zero, so the low record
+cannot be used until bootstrap TTBR0 is restored. The 236-byte observer
+therefore uses registers only until restoration and synchronization complete.
+It then records both incoming roots, restores TTBR1, and returns through the
+existing observer only after both bootstrap roots are back. No page-table
+permissions are changed and no partition writes are involved.
+
+Independent dependency audits cover three geometries. The complete CPU-TLB
+carrier run verified four ordered TTBR writes, all three original caller-sync
+instructions and 46 final-RX instruction fetches. It passed 282 corruption
+rejections, nine preparation cases and three model geometries. Focused local
+regression passed 82 tests; the clean public checkout passed 47 without skips.
+These results are offline execution evidence, not handset or coherency proof.
+
+Candidate image SHA-256:
+`ff464a96251eb2f1491c59e60478a6b83e546734780485e80c3c99a234125415`.
+Full local runtime sources, frozen snapshots and reports are retained in
+`artifacts/mido-native4k-ttbr0-carrier-v1/`. Published isolated modules are not
+a complete carrier builder. Handset validation is pending; this remains a
+reversible diagnostic and does not establish a full XNU/iOS boot.
