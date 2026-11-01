@@ -78,7 +78,7 @@ index 75f3db0..753072a 100644
 + * mido adds one L2 page for the 3-block early framebuffer mapping (start.s),
 + * so 10 pages instead of 8 (L1 x2, up to 3+3 L2 for RAM, 1 for the fb).
 + */
-+#define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 10) /* keep == MIDO_BOOTSTRAP_PAGES in arm64/mido_fb.h */
++#define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 34) /* keep == MIDO_BOOTSTRAP_PAGES in arm64/mido_fb.h */
  #endif /* defined(ARM_LARGE_MEMORY) */
  
  typedef uint64_t tt_entry_t; /* translation table entry type */

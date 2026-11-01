@@ -47,7 +47,7 @@ index 0000000..acb1407
 + * ARM_PGBYTES * this; pmap.h is not assembler-visible). 8 stock pages plus
 + * the L2 table for the framebuffer's L1 slot.
 + */
-+#define MIDO_BOOTSTRAP_PAGES    10
++#define MIDO_BOOTSTRAP_PAGES    34
 +
 +/* Text colours, byte values in memory order. White on dark blue. */
 +#define MIDO_FB_FG_B            0xff
