@@ -1,0 +1,90 @@
+diff --git a/bsd/dev/mido_mmc.c b/bsd/dev/mido_mmc.c
+index cbe0915..40e03a2 100644
+--- a/bsd/dev/mido_mmc.c
++++ b/bsd/dev/mido_mmc.c
+@@ -377,7 +377,7 @@ mmc_write_sectors(uint64_t lba, uint32_t count, const uint8_t *src)
+ }
+ 
+ static int
+-mmc_init_card(void)
++mmc_init_card_once(void)
+ {
+ 	uint32_t resp[4] = { 0, 0, 0, 0 };
+ 	int e;
+@@ -425,9 +425,27 @@ mmc_init_card(void)
+ 		return ETIMEDOUT;
+ 	}
+ 	mido_mmc_dbg[0] = 4;
+-	if ((e = mmc_cmd(2, 0, 0x09, 0, resp)) ||
+-	    (e = mmc_cmd(3, 1u << 16, 0x1a, 0, resp)) ||
+-	    (e = mmc_cmd(7, 1u << 16, 0x1b, 0, resp))) {
++	/* Measured on the handset: CMD2 can succeed and CMD3 time out right after; retry each step. */
++	for (int t = 0; t < 3; t++) {
++		if (!(e = mmc_cmd(2, 0, 0x09, 0, resp))) {
++			break;
++		}
++		delay(10000);
++	}
++	if (e) {
++		return e;
++	}
++	for (int t = 0; t < 3; t++) {
++		if (!(e = mmc_cmd(3, 1u << 16, 0x1a, 0, resp))) {
++			break;
++		}
++		delay(10000);
++	}
++	if (e) {
++		return e;
++	}
++	mido_mmc_dbg[0] = 40;
++	if ((e = mmc_cmd(7, 1u << 16, 0x1b, 0, resp))) {
+ 		return e;
+ 	}
+ 
+@@ -478,6 +496,30 @@ mmc_init_card(void)
+ 	return mmc_wait_ready();
+ }
+ 
++/* Whole initialisation from reset, repeated a few times: the card state left by TWRP/lk2nd varies. */
++static int
++mmc_init_card(void)
++{
++	int e = EIO;
++
++	for (int attempt = 1; attempt <= 5; attempt++) {
++		mido_mmc_dbg[3] = (uint32_t)attempt;
++		e = mmc_init_card_once();
++		if (!e) {
++			if (attempt > 1) {
++				printf("MIDO MMC: card initialised on attempt %d\n", attempt);
++			}
++			return 0;
++		}
++		printf("MIDO MMC: init attempt %d failed: %d (step %u cmd %u st 0x%x)\n", attempt, e,
++		    mido_mmc_dbg[0], mido_mmc_dbg[1], mido_mmc_dbg[2]);
++		mmc_cmd_reset();
++		sd_wr8(SD_PWR, 0);                  /* drop bus power for a clean restart */
++		delay(50000);
++	}
++	return e;
++}
++
+ static int
+ mmc_find_partition(const char *want)
+ {
+diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
+index 515c80e..e492c26 100644
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -776,8 +776,8 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
+ 		int mmc_error = mido_mmc_rootdev(root);
+ 		if (mmc_error) {
+ 			extern volatile uint32_t mido_mmc_dbg[4];
+-			panic("IOFindBSDRoot: MIDO eMMC root %s unavailable: %d (step %u cmd %u st 0x%x)", rdBootVar, mmc_error,
+-			    mido_mmc_dbg[0], mido_mmc_dbg[1], mido_mmc_dbg[2]);
++			panic("IOFindBSDRoot: MIDO eMMC root %s unavailable: %d (step %u cmd %u st 0x%x try %u)", rdBootVar, mmc_error,
++			    mido_mmc_dbg[0], mido_mmc_dbg[1], mido_mmc_dbg[2], mido_mmc_dbg[3]);
+ 		}
+ 		strlcpy(rootName, rdBootVar, rootNameSize);
+ 		IOLog("BSD root: %s, major %d, minor %d\n", rootName, major(*root), minor(*root));
