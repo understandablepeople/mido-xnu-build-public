@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/mido_mmc.c b/bsd/dev/mido_mmc.c
-index 496e3f7..f15caf9 100644
+index 496e3f7..cbe0915 100644
 --- a/bsd/dev/mido_mmc.c
 +++ b/bsd/dev/mido_mmc.c
 @@ -33,6 +33,12 @@
@@ -15,7 +15,7 @@ index 496e3f7..f15caf9 100644
  
  /* osfmk/arm/machine_routines.h, not exported to the BSD layer */
  extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
-@@ -738,11 +744,148 @@ mido_mmc_init(void)
+@@ -738,11 +744,146 @@ mido_mmc_init(void)
  	devfs_make_node(mm.bdev, DEVFS_BLOCK, UID_ROOT, GID_OPERATOR, 0640, "mmcroot0");
  	devfs_make_node(makedev(mm.cmajor, 0), DEVFS_CHAR, UID_ROOT, GID_OPERATOR, 0640, "rmmcroot0");
  	mm.ready = true;
@@ -120,8 +120,7 @@ index 496e3f7..f15caf9 100644
 +static void
 +mido_log_thread(__unused void *arg, __unused wait_result_t wr)
 +{
-+	printf("MIDO LOG: console log to the last %u KiB of the partition (sector 0x%llx)
-+",
++	printf("MIDO LOG: console log to the last %u KiB of the partition (sector 0x%llx)\n",
 +	    MIDO_LOG_SECTORS * SECSIZE >> 10, mm.first + mm.nsect - MIDO_LOG_SECTORS);
 +	for (;;) {
 +		(void)tsleep(&mido_log_chan, PZERO, "midolog", hz);
@@ -133,8 +132,7 @@ index 496e3f7..f15caf9 100644
 +		lck_mtx_unlock(&mido_mmc_lock);
 +		if (error) {
 +			mido_log_err = error;
-+			printf("MIDO LOG: write failed (%d), stopping
-+", error);
++			printf("MIDO LOG: write failed (%d), stopping\n", error);
 +			return;
 +		}
 +	}
