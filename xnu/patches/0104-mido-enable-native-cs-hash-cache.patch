@@ -1,0 +1,13 @@
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+index 8c772b5..9f7aaec 100644
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -61,7 +61,7 @@ MACHINE_FLAGS_ARM64_T8103 = -DARM64_BOARD_CONFIG_T8103                  -mcpu=ap
+ MACHINE_FLAGS_ARM64_T6000 = -DARM64_BOARD_CONFIG_T6000 		-mcpu=apple-a14
+ MACHINE_FLAGS_ARM64_VMAPPLE = -DARM64_BOARD_CONFIG_VMAPPLE              -march=armv8.5a
+ MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
+-MACHINE_FLAGS_ARM64_MIDO = -DARM64_BOARD_CONFIG_MIDO                -mcpu=cortex-a53
++MACHINE_FLAGS_ARM64_MIDO = -DARM64_BOARD_CONFIG_MIDO                -mcpu=cortex-a53 -DXNU_NATIVE_CS_HASH_CACHE=1
+ 
+ 
+ #
