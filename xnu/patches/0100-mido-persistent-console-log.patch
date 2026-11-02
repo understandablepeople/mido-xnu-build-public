@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/mido_mmc.c b/bsd/dev/mido_mmc.c
-index 496e3f7..c9eb02e 100644
+index 496e3f7..f15caf9 100644
 --- a/bsd/dev/mido_mmc.c
 +++ b/bsd/dev/mido_mmc.c
 @@ -33,6 +33,12 @@
@@ -15,7 +15,7 @@ index 496e3f7..c9eb02e 100644
  
  /* osfmk/arm/machine_routines.h, not exported to the BSD layer */
  extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
-@@ -738,11 +744,112 @@ mido_mmc_init(void)
+@@ -738,11 +744,148 @@ mido_mmc_init(void)
  	devfs_make_node(mm.bdev, DEVFS_BLOCK, UID_ROOT, GID_OPERATOR, 0640, "mmcroot0");
  	devfs_make_node(makedev(mm.cmajor, 0), DEVFS_CHAR, UID_ROOT, GID_OPERATOR, 0640, "rmmcroot0");
  	mm.ready = true;
@@ -42,6 +42,7 @@ index 496e3f7..c9eb02e 100644
 +static char mido_log_ring[MIDO_LOG_SIZE];
 +static uint64_t _Atomic mido_log_total;
 +static int mido_log_chan;
++static bool mido_log_on;
 +
 +/* Called for all console output, any context: never blocks. */
 +void mido_log_append(const char *c, int size);
@@ -64,49 +65,78 @@ index 496e3f7..c9eb02e 100644
 +	uint64_t total, seq;
 +};
 +
++static uint64_t mido_log_flushed, mido_log_seq;
++static int mido_log_err;
++
++/* Copy ring data not yet on disk, then the header. Caller holds mido_mmc_lock (or is the panic path). */
++static int
++mido_log_flush(uint32_t note)
++{
++	uint64_t base = mm.first + mm.nsect - MIDO_LOG_SECTORS;     /* header sector */
++	uint64_t total = os_atomic_load(&mido_log_total, relaxed);
++	uint64_t pos = total - mido_log_flushed >= MIDO_LOG_SIZE ? total - MIDO_LOG_SIZE : mido_log_flushed;
++	static uint8_t hdr[SECSIZE];
++	int error = 0;
++
++	while (pos < total && !error) {
++		uint32_t off = (uint32_t)(pos % MIDO_LOG_SIZE);
++		uint32_t sec = off / SECSIZE;
++		uint64_t need = ((uint64_t)off % SECSIZE + (total - pos) + SECSIZE - 1) / SECSIZE;
++		uint32_t n = (uint32_t)MIN(MIN(need, (uint64_t)(MIDO_LOG_SIZE / SECSIZE - sec)),
++		    (uint64_t)MAX_BLOCKS_CMD);
++		error = mmc_write_sectors(base + 1 + sec, n, (const uint8_t *)mido_log_ring + (uint64_t)sec * SECSIZE);
++		pos += (uint64_t)(sec + n) * SECSIZE - off;
++	}
++	if (!error) {
++		struct mido_log_header h = {
++			.magic = { 'M', 'I', 'D', 'O', 'L', 'O', 'G', 0 },
++			.version = 1, .size = MIDO_LOG_SIZE, .total = total, .seq = ++mido_log_seq,
++		};
++		uint32_t extra[4] = { note, (uint32_t)mido_log_err, mido_mmc_dbg[0], mido_mmc_dbg[2] };
++		bzero(hdr, SECSIZE);
++		memcpy(hdr, &h, sizeof(h));
++		memcpy(hdr + sizeof(h), extra, sizeof(extra));
++		error = mmc_write_sectors(base, 1, hdr);
++	}
++	if (!error) {
++		mido_log_flushed = total;
++	}
++	return error;
++}
++
++/* Called from panic_spin_forever(): single CPU, no scheduling; do not take the mutex. */
++void mido_log_panic_flush(void);
++
++void
++mido_log_panic_flush(void)
++{
++	if (!mm.ready || !mm.writable || !mido_log_on) {
++		return;
++	}
++	mmc_cmd_reset();
++	(void)mido_log_flush(2);
++}
++
 +static void
 +mido_log_thread(__unused void *arg, __unused wait_result_t wr)
 +{
-+	uint64_t base = mm.first + mm.nsect - MIDO_LOG_SECTORS;     /* header sector */
-+	uint64_t flushed = 0, seq = 0;
-+	static uint8_t hdr[SECSIZE];
-+
-+	printf("MIDO LOG: console log to the last %u KiB of the partition (sector 0x%llx)\n",
-+	    MIDO_LOG_SECTORS * SECSIZE >> 10, base);
++	printf("MIDO LOG: console log to the last %u KiB of the partition (sector 0x%llx)
++",
++	    MIDO_LOG_SECTORS * SECSIZE >> 10, mm.first + mm.nsect - MIDO_LOG_SECTORS);
 +	for (;;) {
 +		(void)tsleep(&mido_log_chan, PZERO, "midolog", hz);
-+		uint64_t total = os_atomic_load(&mido_log_total, relaxed);
-+		if (total == flushed) {
++		if (os_atomic_load(&mido_log_total, relaxed) == mido_log_flushed) {
 +			continue;
 +		}
-+		uint64_t pos = total - flushed >= MIDO_LOG_SIZE ? total - MIDO_LOG_SIZE : flushed;
-+		int error = 0;
-+
 +		lck_mtx_lock(&mido_mmc_lock);
-+		while (pos < total && !error) {
-+			uint32_t off = (uint32_t)(pos % MIDO_LOG_SIZE);
-+			uint32_t sec = off / SECSIZE;
-+			uint64_t need = ((uint64_t)off % SECSIZE + (total - pos) + SECSIZE - 1) / SECSIZE;
-+			uint32_t n = (uint32_t)MIN(MIN(need, (uint64_t)(MIDO_LOG_SIZE / SECSIZE - sec)),
-+			    (uint64_t)MAX_BLOCKS_CMD);
-+			error = mmc_write_sectors(base + 1 + sec, n, (const uint8_t *)mido_log_ring + (uint64_t)sec * SECSIZE);
-+			pos += (uint64_t)(sec + n) * SECSIZE - off;
-+		}
-+		if (!error) {
-+			struct mido_log_header h = {
-+				.magic = { 'M', 'I', 'D', 'O', 'L', 'O', 'G', 0 },
-+				.version = 1, .size = MIDO_LOG_SIZE, .total = total, .seq = ++seq,
-+			};
-+			bzero(hdr, SECSIZE);
-+			memcpy(hdr, &h, sizeof(h));
-+			error = mmc_write_sectors(base, 1, hdr);
-+		}
++		int error = mido_log_flush(1);
 +		lck_mtx_unlock(&mido_mmc_lock);
 +		if (error) {
-+			printf("MIDO LOG: write failed (%d), stopping\n", error);
++			mido_log_err = error;
++			printf("MIDO LOG: write failed (%d), stopping
++", error);
 +			return;
 +		}
-+		flushed = total;
 +	}
 +}
 +
@@ -120,6 +150,12 @@ index 496e3f7..c9eb02e 100644
 +	if (!on || !mm.writable || mm.nsect < 2 * MIDO_LOG_SECTORS) {
 +		return;
 +	}
++	mido_log_on = true;
++	/* Synchronous first flush: proves the write path and leaves a header even if the thread never runs. */
++	lck_mtx_lock(&mido_mmc_lock);
++	mido_log_err = mido_log_flush(0);
++	lck_mtx_unlock(&mido_mmc_lock);
++	printf("MIDO LOG: first flush -> %d\n", mido_log_err);
 +	if (kernel_thread_start(mido_log_thread, NULL, &thread) == KERN_SUCCESS) {
 +		thread_deallocate(thread);
 +	}
@@ -152,3 +188,25 @@ index e5b23f2..e684d3a 100644
  	if (disableConsoleOutput) {
  		return;
  	}
+diff --git a/osfmk/kern/debug.c b/osfmk/kern/debug.c
+index bb452b3..b2d447d 100644
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1155,9 +1155,17 @@ panic_trap_to_debugger(const char *panic_format_str, va_list *panic_args, unsign
+ 	__builtin_unreachable();
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++extern void mido_log_panic_flush(void);
++#endif
++
+ void
+ panic_spin_forever(void)
+ {
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++	/* Last chance to save the console ring to the eMMC (single CPU, interrupts off). */
++	mido_log_panic_flush();
++#endif
+ 	for (;;) {
+ #if defined(__arm__) || defined(__arm64__)
+ 		/* On arm32, which doesn't have a WFE timeout, this may not return.  But that should be OK on this path. */
