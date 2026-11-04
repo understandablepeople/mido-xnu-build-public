@@ -48,5 +48,11 @@ Anything not tagged is an assumption.
 - TLMM base 0x01000000, 4 KiB per GPIO (CFG at +0, IN_OUT at +4).
 
 ## Other
+- Recovery verification (2026-11-04): bound `ft5435_ts` on i2c-3/0x38,
+  device ID 0x54, firmware 10.0.0, 10 slots, 1080x1920. [HW]
+- Touch supplies from the live recovery DT: pm8953_l10 at 2.85 V (vdd),
+  pm8953_l6 at 1.8 V (vcc_i2c). [DTB]
+- Recovery battery/bms both reported 95%, charging over USB, 4.353459 V
+  and 31.2 C. These are a recovery-time snapshot, not live XNU telemetry. [HW]
 - RPM-SMD regulators present (PM8953 ldoa*/smpa*); WCNSS (Wi-Fi) is not part of milestone 1.
 - GPU Adreno 506: no iOS driver anywhere; first GUI renders in software (as ios-sweet).
