@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from patch_sources import kernel_source
 
 
 class Slot(ctypes.Structure):
@@ -47,12 +48,8 @@ class HardwareInputTests(unittest.TestCase):
         cls.native.host_frame.argtypes = [ctypes.POINTER(Mock), ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
 
     def test_patch_embeds_exact_tested_sources(self):
-        patch = (self.root.parent / 'xnu/patches/0107-mido-polled-input-battery.patch').read_text()
         for name in ('MidoInput.cpp', 'mido_ft5435.h', 'mido_input_state.h', 'mido_qup_v2.h'):
-            section = patch.split('+++ b/iokit/Kernel/arm/' + name + chr(10), 1)[1]
-            section = section.split(chr(10) + '--- ', 1)[0]
-            embedded = chr(10).join(line[1:] for line in section.splitlines()
-                                    if line.startswith('+')) + chr(10)
+            embedded = kernel_source(self.root.parent, name, "0107-mido-polled-input-battery.patch")
             self.assertEqual(embedded, (self.root / 'input' / name).read_text())
 
     def transfer(self, mode=0, length=63, block=16):

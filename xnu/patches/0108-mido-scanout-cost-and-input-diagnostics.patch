@@ -1,0 +1,189 @@
+--- a/iokit/Kernel/arm/MidoFramebuffer.cpp
++++ b/iokit/Kernel/arm/MidoFramebuffer.cpp
+@@ -263,6 +263,7 @@
+ void
+ AppleCLCD::swap(const uint8_t *rec)
+ {
++	uint64_t started = mach_absolute_time();
+ 	uint32_t mask = get32(rec, 0x104);
+ 	IOLockLock(fLock);
+ 	struct mido_pixel_buffer target = {
+@@ -316,6 +317,9 @@
+ 		}
+ 		if (mido_fb_swaps_logged < 16) {
+ 			mido_fb_swaps_logged++;
++			uint64_t elapsed = 0;
++			absolutetime_to_nanoseconds(mach_absolute_time() - started, &elapsed);
++			IOLog("MIDO FB: copy time %llu us\n", elapsed / 1000);
+ 			IOLog("MIDO FB: swap %u layer %u surface %u %ux%u fmt 0x%x bpr %u copied %llu pixels\n",
+ 			    get32(rec, 0x50), layer, id, surface->width, surface->height,
+ 			    surface->pixelFormat, surface->bytesPerRow, copied);
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -11,6 +11,7 @@
+ #include <libkern/c++/OSDictionary.h>
+ #include <pexpert/pexpert.h>
+ #include <machine/machine_routines.h>
++#include <kern/clock.h>
+ #include "mido_qup_v2.h"
+ #include "mido_input_state.h"
+ 
+@@ -103,6 +104,9 @@
+     unsigned fTicks = 0, fFailures = 0, fProbeCount = 0, fPmicFailures = 0;
+     unsigned fDebounce[3] = {}, fStable[3] = {};
+     unsigned fLastPercent = 101;
++    unsigned fLastPower = 8;
++    uint64_t fNextBattery = 0, fLastPoll = 0;
++    unsigned fSlowPolls = 0;
+     bool fInitialized = false, fTouch = false, fPmic = false;
+     bool fRunning = false, fTimerAdded = false;
+     void initialize(void);
+@@ -172,6 +176,8 @@
+     int error = mido_qup_read(&fIo, 0x38, 0xa3, &identity, 1);
+     IOLog("MIDO INPUT: QUP version=0x%x chip=0x%x read=%d\n",
+         input_read(fQup, 0x30), identity, error);
++    IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x\n",
++        fIo.last_status, fIo.last_errors, fIo.last_operational);
+     if (error || identity != 0x54) {
+         IOLog("MIDO INPUT: FT5435 not verified; inherited L10/L6 supplies required\n");
+         return false;
+@@ -320,10 +326,12 @@
+     fBattery->setProperty("MidoHardwareSampleValid", true);
+     fBattery->setProperty("MidoRawSOC", (unsigned long long)soc[0], 32);
+     fBattery->updateStatus();
+-    if (percent != fLastPercent) {
++    unsigned power = external | (charging << 1) | (full << 2);
++    if (percent != fLastPercent || power != fLastPower) {
+         IOLog("MIDO BATTERY: PMI8950 raw=%u percent=%u USB=%d charging=%d full=%d\n",
+             soc[0], percent, external, charging, full);
+         fLastPercent = percent;
++        fLastPower = power;
+     }
+ }
+ 
+@@ -352,6 +360,14 @@
+ void
+ MidoInput::poll(void)
+ {
++    uint64_t now = mach_absolute_time(), elapsed = 0;
++    if (fLastPoll) {
++        absolutetime_to_nanoseconds(now - fLastPoll, &elapsed);
++        if (elapsed > 1000000000ULL && fSlowPolls++ < 20) {
++            IOLog("MIDO INPUT: scheduling gap %llu ms\n", elapsed / 1000000);
++        }
++    }
++    fLastPoll = now;
+     if (!mido_hid_ready()) {
+         return;
+     }
+@@ -385,9 +401,15 @@
+             fFailures = 0;
+         }
+         IOLog("MIDO INPUT: bounded re-probe %u ID=0x%x read=%d\n", fProbeCount, identity, error);
+-    }
+-    if (fTicks++ % 1500 == 0) {
++        IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x\n",
++            fIo.last_status, fIo.last_errors, fIo.last_operational);
++    }
++    fTicks++;
++    if (!fNextBattery || now >= fNextBattery) {
+         battery();
++        uint64_t interval = 0;
++        clock_interval_to_absolutetime_interval(5, NSEC_PER_SEC, &interval);
++        fNextBattery = mach_absolute_time() + interval;
+     }
+ }
+ 
+--- a/iokit/Kernel/arm/mido_qup_v2.h
++++ b/iokit/Kernel/arm/mido_qup_v2.h
+@@ -8,6 +8,7 @@
+     uint32_t (*read)(void *, uint32_t);
+     void (*write)(void *, uint32_t, uint32_t);
+     void (*delay)(void *, unsigned);
++    uint32_t last_status, last_errors, last_operational;
+ };
+ 
+ static inline int
+@@ -48,6 +49,7 @@
+     if (version == 0 || version == UINT32_MAX || (version >> 28) != 2) {
+         return -2;
+     }
++    io->last_status = io->last_errors = io->last_operational = 0;
+     io->write(io->context, 0x0c, 1);
+     if (!mido_qup_wait(io, 4, 7, 4, 2000)) {
+         io->write(io->context, 0x0c, 1);
+@@ -99,6 +101,9 @@
+         uint32_t status = io->read(io->context, 0x404);
+         uint32_t errors = io->read(io->context, 0x1c);
+         uint32_t operational = io->read(io->context, 0x18);
++        io->last_status = status;
++        io->last_errors = errors;
++        io->last_operational = operational;
+         if ((status & 0x380003c) != 0 || (errors & 0x3c) != 0) {
+             result = -7;
+             break;
+--- a/iokit/Kernel/arm/mido_scanout.h
++++ b/iokit/Kernel/arm/mido_scanout.h
+@@ -77,31 +77,44 @@
+     uint32_t last_x = (uint32_t)((right * target->width + canvas_width - 1) / canvas_width);
+     uint32_t last_y = (uint32_t)((bottom * target->height + canvas_height - 1) / canvas_height);
+     uint64_t copied = 0;
+-    for (uint32_t panel_y = first_y; panel_y < last_y; panel_y++) {
+-        int64_t logical_y = (uint64_t)panel_y * canvas_height / target->height;
+-        int64_t source_y = rect->source_y +
+-            (logical_y - rect->target_y) * rect->source_height / rect->target_height;
+-        if (source_y < 0 || source_y >= source->height) {
+-            continue;
++    uint32_t offsets[128];
++    for (uint32_t block_x = first_x; block_x < last_x; block_x += 128) {
++        uint32_t count = last_x - block_x;
++        if (count > 128) {
++            count = 128;
+         }
+-        uint8_t *target_row = target->pixels + (uint64_t)panel_y * target->row_bytes;
+-        const uint8_t *source_row = source->pixels + (uint64_t)source_y * source->row_bytes;
+-        for (uint32_t panel_x = first_x; panel_x < last_x; panel_x++) {
++        for (uint32_t column = 0; column < count; column++) {
++            uint32_t panel_x = block_x + column;
+             int64_t logical_x = (uint64_t)panel_x * canvas_width / target->width;
+             int64_t source_x = rect->source_x +
+                 (logical_x - rect->target_x) * rect->source_width / rect->target_width;
+-            if (source_x < 0 || source_x >= source->width) {
++            offsets[column] = source_x < 0 || source_x >= source->width ?
++                UINT32_MAX : (uint32_t)source_x * 4;
++        }
++        for (uint32_t panel_y = first_y; panel_y < last_y; panel_y++) {
++            int64_t logical_y = (uint64_t)panel_y * canvas_height / target->height;
++            int64_t source_y = rect->source_y +
++                (logical_y - rect->target_y) * rect->source_height / rect->target_height;
++            if (source_y < 0 || source_y >= source->height) {
+                 continue;
+             }
+-            const uint8_t *pixel = source_row + (uint64_t)source_x * 4;
+-            uint8_t *destination = target_row + (uint64_t)panel_x * target->pixel_bytes;
+-            destination[0] = pixel[0];
+-            destination[1] = pixel[1];
+-            destination[2] = pixel[2];
+-            if (target->pixel_bytes == 4) {
+-                destination[3] = pixel[3];
++            uint8_t *target_row = target->pixels + (uint64_t)panel_y * target->row_bytes;
++            const uint8_t *source_row = source->pixels + (uint64_t)source_y * source->row_bytes;
++            for (uint32_t column = 0; column < count; column++) {
++                if (offsets[column] == UINT32_MAX) {
++                    continue;
++                }
++                const uint8_t *pixel = source_row + offsets[column];
++                uint8_t *destination = target_row +
++                    (uint64_t)(block_x + column) * target->pixel_bytes;
++                destination[0] = pixel[0];
++                destination[1] = pixel[1];
++                destination[2] = pixel[2];
++                if (target->pixel_bytes == 4) {
++                    destination[3] = pixel[3];
++                }
++                copied++;
+             }
+-            copied++;
+         }
+     }
+     return copied;

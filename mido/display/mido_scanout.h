@@ -77,31 +77,44 @@ mido_scanout_blit(const struct mido_pixel_buffer *source,
     uint32_t last_x = (uint32_t)((right * target->width + canvas_width - 1) / canvas_width);
     uint32_t last_y = (uint32_t)((bottom * target->height + canvas_height - 1) / canvas_height);
     uint64_t copied = 0;
-    for (uint32_t panel_y = first_y; panel_y < last_y; panel_y++) {
-        int64_t logical_y = (uint64_t)panel_y * canvas_height / target->height;
-        int64_t source_y = rect->source_y +
-            (logical_y - rect->target_y) * rect->source_height / rect->target_height;
-        if (source_y < 0 || source_y >= source->height) {
-            continue;
+    uint32_t offsets[128];
+    for (uint32_t block_x = first_x; block_x < last_x; block_x += 128) {
+        uint32_t count = last_x - block_x;
+        if (count > 128) {
+            count = 128;
         }
-        uint8_t *target_row = target->pixels + (uint64_t)panel_y * target->row_bytes;
-        const uint8_t *source_row = source->pixels + (uint64_t)source_y * source->row_bytes;
-        for (uint32_t panel_x = first_x; panel_x < last_x; panel_x++) {
+        for (uint32_t column = 0; column < count; column++) {
+            uint32_t panel_x = block_x + column;
             int64_t logical_x = (uint64_t)panel_x * canvas_width / target->width;
             int64_t source_x = rect->source_x +
                 (logical_x - rect->target_x) * rect->source_width / rect->target_width;
-            if (source_x < 0 || source_x >= source->width) {
+            offsets[column] = source_x < 0 || source_x >= source->width ?
+                UINT32_MAX : (uint32_t)source_x * 4;
+        }
+        for (uint32_t panel_y = first_y; panel_y < last_y; panel_y++) {
+            int64_t logical_y = (uint64_t)panel_y * canvas_height / target->height;
+            int64_t source_y = rect->source_y +
+                (logical_y - rect->target_y) * rect->source_height / rect->target_height;
+            if (source_y < 0 || source_y >= source->height) {
                 continue;
             }
-            const uint8_t *pixel = source_row + (uint64_t)source_x * 4;
-            uint8_t *destination = target_row + (uint64_t)panel_x * target->pixel_bytes;
-            destination[0] = pixel[0];
-            destination[1] = pixel[1];
-            destination[2] = pixel[2];
-            if (target->pixel_bytes == 4) {
-                destination[3] = pixel[3];
+            uint8_t *target_row = target->pixels + (uint64_t)panel_y * target->row_bytes;
+            const uint8_t *source_row = source->pixels + (uint64_t)source_y * source->row_bytes;
+            for (uint32_t column = 0; column < count; column++) {
+                if (offsets[column] == UINT32_MAX) {
+                    continue;
+                }
+                const uint8_t *pixel = source_row + offsets[column];
+                uint8_t *destination = target_row +
+                    (uint64_t)(block_x + column) * target->pixel_bytes;
+                destination[0] = pixel[0];
+                destination[1] = pixel[1];
+                destination[2] = pixel[2];
+                if (target->pixel_bytes == 4) {
+                    destination[3] = pixel[3];
+                }
+                copied++;
             }
-            copied++;
         }
     }
     return copied;

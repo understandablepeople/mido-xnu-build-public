@@ -11,6 +11,7 @@
 #include <libkern/c++/OSDictionary.h>
 #include <pexpert/pexpert.h>
 #include <machine/machine_routines.h>
+#include <kern/clock.h>
 #include "mido_qup_v2.h"
 #include "mido_input_state.h"
 
@@ -103,6 +104,9 @@ private:
     unsigned fTicks = 0, fFailures = 0, fProbeCount = 0, fPmicFailures = 0;
     unsigned fDebounce[3] = {}, fStable[3] = {};
     unsigned fLastPercent = 101;
+    unsigned fLastPower = 8;
+    uint64_t fNextBattery = 0, fLastPoll = 0;
+    unsigned fSlowPolls = 0;
     bool fInitialized = false, fTouch = false, fPmic = false;
     bool fRunning = false, fTimerAdded = false;
     void initialize(void);
@@ -172,6 +176,8 @@ MidoInput::touchSetup(void)
     int error = mido_qup_read(&fIo, 0x38, 0xa3, &identity, 1);
     IOLog("MIDO INPUT: QUP version=0x%x chip=0x%x read=%d\n",
         input_read(fQup, 0x30), identity, error);
+    IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x\n",
+        fIo.last_status, fIo.last_errors, fIo.last_operational);
     if (error || identity != 0x54) {
         IOLog("MIDO INPUT: FT5435 not verified; inherited L10/L6 supplies required\n");
         return false;
@@ -320,10 +326,12 @@ MidoInput::battery(void)
     fBattery->setProperty("MidoHardwareSampleValid", true);
     fBattery->setProperty("MidoRawSOC", (unsigned long long)soc[0], 32);
     fBattery->updateStatus();
-    if (percent != fLastPercent) {
+    unsigned power = external | (charging << 1) | (full << 2);
+    if (percent != fLastPercent || power != fLastPower) {
         IOLog("MIDO BATTERY: PMI8950 raw=%u percent=%u USB=%d charging=%d full=%d\n",
             soc[0], percent, external, charging, full);
         fLastPercent = percent;
+        fLastPower = power;
     }
 }
 
@@ -352,6 +360,14 @@ MidoInput::initialize(void)
 void
 MidoInput::poll(void)
 {
+    uint64_t now = mach_absolute_time(), elapsed = 0;
+    if (fLastPoll) {
+        absolutetime_to_nanoseconds(now - fLastPoll, &elapsed);
+        if (elapsed > 1000000000ULL && fSlowPolls++ < 20) {
+            IOLog("MIDO INPUT: scheduling gap %llu ms\n", elapsed / 1000000);
+        }
+    }
+    fLastPoll = now;
     if (!mido_hid_ready()) {
         return;
     }
@@ -385,9 +401,15 @@ MidoInput::poll(void)
             fFailures = 0;
         }
         IOLog("MIDO INPUT: bounded re-probe %u ID=0x%x read=%d\n", fProbeCount, identity, error);
+        IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x\n",
+            fIo.last_status, fIo.last_errors, fIo.last_operational);
     }
-    if (fTicks++ % 1500 == 0) {
+    fTicks++;
+    if (!fNextBattery || now >= fNextBattery) {
         battery();
+        uint64_t interval = 0;
+        clock_interval_to_absolutetime_interval(5, NSEC_PER_SEC, &interval);
+        fNextBattery = mach_absolute_time() + interval;
     }
 }
 

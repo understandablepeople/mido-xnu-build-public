@@ -1,5 +1,463 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-04: 0107 GUI/input evidence; 0108 local checks PASS
+
+User saw lock screen; power/volume visible responses delayed by minutes.
+Phone now recovery, adb verified. Read ONLY persisted userdata console tail
+with tools/mido-log-pull.py: logs/input-0107-live-20261104.txt, 218570 bytes,
+flush419, no wrap. No reboot/flash/debugfs/MMIO probing in recovery.
+PMIC keys dispatch with one HID client; battery actually detects unplug
+(99% USB1 charging1 -> 98% USB0 charging0 -> 99% USB1 charging1).
+Touch FAILED chip ID: QUP 0x20070000, ID0, read=-7 all six probes. Do not
+call this working/slow touch or claim a regulator cause without status bits.
+One SpringBoard exec; no panic(cpu/SIGABRT. Display panel power-off is NOT
+implemented in framebuffer (unhandled selectors return success).
+Findings: mido/notes/input-0108.md; local logs/input-0107-analysis-20261104.json.
+0108 tile-offset scanout removes repeated per-pixel divisions; identical
+randomized/reference/sanitizer output. x86 host benchmark 6.255 -> 2.972 ms
+(2.10x), NOT a hardware speed claim. New QUP snapshots, copy timings, input
+schedule-gap diagnostics, five elapsed-second battery updates/state logging.
+ARM64 driver/framebuffer compile PASS. Preparing full CI; no new boot yet.
+Keep cpus=1 and recovery stable until user test gate; no root image reflashes.
+
+## MIDO latest 2026-11-04: 0107 temporary boot sent, awaiting user observation
+
+User confirmed ready after moving to Bootloader. Verified exactly one fastboot
+device, stock product mido, both image checksums. Temporarily booted verified
+lk2nd 23.1, checked product lk2nd-msm8953, then fastboot boot of 0107 image
+4f0fbc438311300769a028547fc179e6de579e777f6d0dae2674af458e39a869.
+Both commands returned status 0 and Sending/Booting OKAY. NO partition flash,
+no root repair/write command, no recovery debugfs/MMIO reads. This confirms
+loader acceptance ONLY, not XNU startup, UI or working physical input.
+Evidence logs/input-0107-temp-boot-20261104.json includes exact outputs/time.
+Next needs user screen/photo and short Home/touch/volume tests; if stuck or
+panic, capture screen then return directly to TWRP for fresh persisted logs.
+Keep cpus=1; do not mix SMP testing.
+
+## MIDO active 2026-11-04: input/battery patch 0107, awaiting full CI and hardware
+
+New canonical sources in mido/input: MidoInput.cpp, mido_qup_v2.h,
+mido_input_state.h; patch xnu/patches/0107-mido-polled-input-battery.patch
+embeds them plus the already-tested parser. Real QUPv2 block RX/FIFO TX,
+identity-to-slot reconciliation, Home, volume GPIO85 and read-only SPMI
+power/volume-down/PMI8950 telemetry implemented. NO hardware success yet.
+Touch inherits warm L10/L6 rails; cold initialization is still absent.
+midoinput=0/midotouch=0/midopmic=0 diagnostic disable switches available.
+Local ARM64 objects for driver/HID/config compile; patch applies against
+research/verify-display-0106. Native tests plus ASan/UBSan stress pass.
+Phone safely confirmed recovery via adb get-state; no reboot/flash/debugfs.
+Keep cpus=1, 0101 eMMC retry, 0106 display and repaired on-device root.
+Old host root images remain corrupted: NEVER reflash them.
+Published 95d386e; automatic CI 41839208377 PASSED in 6m26s.
+Kernel xnu/out-0107/kernel.development.mido SHA256
+8967aa380d51bb20d7eee7fe17d82b24cd83a1369df1c90af7281e5ee0944f5e.
+Separate image out/input-0107/package/mido-xnu-shim.img SHA256
+4f0fbc438311300769a028547fc179e6de579e777f6d0dae2674af458e39a869.
+Saved full CI log logs/ci-41839208377-success.txt and validation evidence
+logs/input-0107-validation.json. Scanner has one raw match, proven same
+entire 64-word K256 SHA256 data table as 0106, not an instruction; zero
+actual unsupported-instruction matches. Shim, DTB, ADT and payload cmdline
+remain byte-identical to 0106; cpus=1. No boot/flash commands executed.
+21 discovered native tests PASS (one NDK-dependent module skipped), including
+exact embedded-source consistency and new 10000-case ASan/UBSan stress.
+Next action is the user moving TWRP to Reboot -> Bootloader (NOT System)
+for deliberate two-stage temporary lk2nd then XNU boot and photo/input test.
+Last safe adb get-state remains recovery. No recovery MMIO/debugfs probing.
+Hardware touch, keys and iOS battery recognition still UNVERIFIED; no claim
+that compiling the driver fixed the physical phone. Do not mix SMP test.
+Unrelated shim/build.sh and old repair scripts remain local/unpublished.
+
+## MIDO handoff 2026-11-04: FT5435 pure helpers implemented/tested, NO transport yet
+
+Published ONLY these three reviewed helper/test/doc files as 51fa186 on
+existing mido-port. No workflow triggered (no patch/workflow path changed).
+NOTES.md, shim/build.sh, dumps/logs and previous repair scripts left local.
+
+User left phone in TWRP. Local implementation only this turn; no device
+reads except final adb get-state (recovery), no reboot/boot/flash/debugfs.
+Added independent mido/input/mido_ft5435.h, six tests in
+mido/tests/test_mido_ft5435.py, and mido/notes/input-ft5435.md.
+Decoder checks fixed report length/mode/count/events/duplicate IDs, parses
+touch/up and virtual Home/Menu/Back, preserves 0..14 hardware identities,
+rejects invalid frames without modifying output, clears valid zero-count
+frame. QUP-v2 builder emits 81 70 82 01 00 81 71 87 3f for report read.
+All six WSL tests PASS: 2000 seeded reference frames and 100000 malformed
+reports with ASan/UBSan plus guards. Freestanding Cortex-A53 ARM64 Mach-O
+object compiles with warnings-as-errors; scratch object in ignored
+research/mido-input-reference/ft5435-helper-arm64.o. git diff --check passes.
+
+IMPORTANT: helpers are NOT yet wired into kernel patch series, MMIO
+transport, HID, buttons or battery. NO working-touch claim. No kernel CI.
+Next implement and mock-test bounded QUP-v2 FIFO/block receive (65 bytes
+including tags cannot be assumed to fit 64-byte FIFO), check actual version
+and clock state before MMIO, add slot/identity reconciliation, then integrate
+and single-file compile before CI. Keep recovery stable until deliberate
+test approval. Details and provenance in mido/notes/input-ft5435.md.
+
+## Prior milestone: recovery restored; external-abort evidence saved
+
+User confirmed BOTH previous interruptions booted LineageOS from TWRP.
+User returned recovery again; verified adb state recovery and TWRP 3.7.0.
+NO reboot, fastboot boot, flashing, debugfs mount or GPIO/debugfs reads in
+this follow-up. Do not repeat debugfs/gpio under any circumstances.
+
+Read existing pstore via adb pull to
+logs/recovery-reset-pstore-20261104.txt (23667 bytes). Tail contains:
+[94.142891] Unhandled fault: synchronous external abort (0x96000210)
+at 0xffffff8012800000, followed by sys_sync in die. No stack trace after.
+This confirms a recovery kernel external abort in saved prior boot log;
+the exact faulting function is NOT proven. Read correlates with prior GPIO
+diagnostic. Do not misreport this as just a USB cable disconnection.
+
+Safe sysfs checks succeed: adapter name MSM-I2C-v2-adapter, ft5435_ts
+bound to 3-0038; firmware v10.0.0. Current battery 100%, Charging (earlier
+95% snapshot is historical). Resource sysfs path absent; no MMIO probe.
+Attempted bounded getevent capture on event1 produced NO events; not
+evidence of failed hardware or HID success. TWRP still responds afterward.
+
+Important implementation finding: active Qualcomm I2C driver enables QUP
+VERSION TWO tags (i2c-msm-v2.c:1908). Do NOT blindly reuse the sailfish
+v1-tag FIFO driver. Need checked v2 FIFO/block transfer for the 63-byte
+FT5435 report, correct MSM8953 clocks and supplies. Existing Linux driver
+reference has 3-byte metadata and ten 6-byte contacts, virtual Home x500
+y2040. No input kernel code yet added, no hardware fix claimed.
+Two-core image remains unbooted. Do not boot without new agreement after
+prior promise to keep recovery untouched until reset investigation.
+
+## Prior milestone: GUI log verified; recovery hardware read; USB lost
+
+Follow-up: adb briefly returned recovery, then disappeared again during
+a debugfs diagnostic command. TWICE the command output stopped exactly
+at reading /sys/kernel/debug/gpio; adb/fastboot inventories then empty.
+This correlates with that debugfs read, not confirmed cable trouble. DO NOT
+read debugfs/gpio again. No reboot command was sent; possible recovery
+kernel fault needs pstore/last_kmsg check after recovery returns. User was
+initially asked to check cable before this correlation was recognized.
+Two-core test remains NOT BOOTED; do not send boot commands to an absent
+or unidentified device. Last checked inventories empty.
+
+Hardware notes committed/pushed e070e08 (six non-private factual lines).
+Correct fuel gauge reference now downloaded:
+drivers/power/supply/qcom/qpnp-fg.c at the same pinned Linux SHA.
+Also downloaded msm-clocks-hwio-8953.h: QUP3 CMD/CFG 0x04000/0x04004,
+CBCR 0x04020, BLSP1 AHB CBCR 0x01008, vote 0x45004 relative to GCC.
+These differ from sailfish: NEVER copy sailfish clock/PMIC addresses.
+No input/battery kernel edits, no kernel CI, no boot/flash this follow-up.
+
+Fresh log logs/lockscreen-0106-20261104.txt: total 212464 bytes, flush 642,
+no wrap. Parsed text has ONE exec SpringBoard, ZERO SIGABRT, ZERO panic(cpu,
+ZERO previous valid-bounds exceptions. AppleCLCD registers 1080x1920 BGR24
+with 1242x2208 canvas; full 2073600-pixel flips occur. backboardd opens both
+HID services. This verifies previous GUI crash-loop absent in THIS log.
+Other failures remain: repeated bluetoothd/fairplayd.H2 executions, not yet
+diagnosed. Do not claim all services operational.
+
+User asks enabling eight cores and removing supposed alternate root. Actual
+log: cpus=1 selects 1/1, eMMC init attempt 1 times out at CMD7, attempt 2
+succeeds, SAME userdata first sector 0xa40410 -> mmcroot0 -> iOSRoot HFS.
+There is no second root partition here. Keep reset/init retry 0101. The
+two launchd paths (appleinternal development then /sbin/launchd) are also
+paths on the same filesystem, not alternate disk roots. No disk edit done.
+
+SMP source has PSCI secondary entry, GICv2 per-CPU init, SGI startup checks
+and current MPIDR validation for A53 0x000-003/0x100-103; maximum eight.
+Old comments in 0078/MIDO.h about A55/A76 are inherited WRONG text, not
+evidence about mido silicon. Eight-core boot has NOT been tested. Prepared
+out/display-0106-2cpu/package/mido-xnu-shim.img for bounded first SMP step.
+SHA256 0eb5475092c58e30681c0692212c2dd3bc348139f6132c0bd9ec41b74af1769b
+Only ONE payload byte changed at 0x60: cpus=1 -> cpus=2. Kernel, shim, ADT
+unchanged; verified roundtrip. NOT BOOTED. Validation JSON under logs.
+
+TWRP read confirmed actual bound ft5435_ts at i2c-3 address 0x38, device ID
+0x54, firmware 10.0.0, ten slots, 1080x1920, virtual Home/Menu/Back. Inputs:
+event0 qpnp_pon, event1 ft5435_ts, event4 gpio-keys volume-up. Battery/bms
+both report 95%, USB present/online, Charging, 4353459 uV, temp312 (31.2 C).
+PMIC is PM8953 SID0 and PMI8950 SID2/3 (do NOT copy sweet PM6150 addresses).
+Touch rails resolved from live DT: pm8953_l10 2.85V and pm8953_l6 1.8V.
+Saved logs/twrp-input-power-20261104.txt (full dmesg and sysfs),
+logs/twrp-live-20261104.dtb, logs/twrp-input-dt-20261104.json.
+Mounted debugfs for read diagnostics only; no PMIC/I2C writes, no firmware
+upload, no partition writes, no reboot. Before subsequent diagnostics the
+device disappeared from BOTH adb and fastboot inventories; user notified
+to check cable/recovery. Do not mistake disappearance for a commanded boot.
+
+Linux reference downloaded to ignored research/mido-input-reference from
+xiaomi-msm8953-devs/kernel_xiaomi_msm8953 commit
+dbe33d8d742974d65b20971bcb91dee26ea56892: ft5435_ts.c/h, i2c-qup.c,
+i2c-msm-v2.c, clock-gcc-8953.c, spmi-pmic-arb.c. Old drivers/power/qpnp-fg.c
+path is 404, fetch correct power-supply path before using. References only;
+no borrowed driver integrated. Native hardware input/battery still missing.
+NEXT: restore adb in TWRP; finish read-only clock/regulator/SPMI diagnostics
+and implement real input transport. Two-core image is available for separate
+SMP test, then inspect fresh log before 4/8; do not promise 8x speedup.
+
+## Prior milestone: lock-screen photo confirmed
+
+User supplied photo after Apple logo: rendered iOS lock screen on mido.
+User reports time updates, but touch and physical buttons do not respond;
+battery indicator is incorrect. This is runtime evidence of GUI scanout
+and a live lock-screen update, NOT proof of usable Home screen or full OS.
+Photo local asset: C:/Users/frant/.cloudcli/assets/1793795161221-132575486-image.png
+No fresh persistent log yet; old SpringBoard loop cessation not log-verified.
+
+Source audit: research/display-buildtree/xnu/iokit/Kernel/arm/hid/MidoHID.cpp
+defines mido_hid_key and mido_hid_touch, but whole-tree search finds NO
+hardware callers. Only optional midohidtest timer synthesizes Home.
+Hardware touch/key transport is missing, not fixed by coordinate patch.
+No MIDO battery telemetry driver was identified in patch series; do NOT
+fabricate charge percentage or infer actual low battery from GUI icon.
+mido/HARDWARE.md has saved DTB facts: FT5435 at I2C 0x38/QUP3 0x078b7000,
+GPIO64 reset/GPIO65 IRQ, GPIO85 volume-up, PM8953 SPMI PON power/down.
+Need live TWRP identification/driver binding and battery readings before
+implementing transport: saved DTB compatibility is not chip identification.
+ADB/fastboot inventories empty while XNU running. No reboot/build/write
+in this follow-up. Next: user returns TWRP, pull new log and read hardware
+sysfs/DT/inputs/power_supply; then implement actual input and telemetry.
+
+## Prior milestone: CI passed; display 0106 temporarily booted
+
+Public display notes updated in docs-only commit c6fd9b0 and pushed after
+one transient DNS failure. No duplicate kernel CI was triggered. Post-boot
+ADB/fastboot inventories are empty: no live kernel/GUI evidence available
+from USB. Await user screen photo / recovery return for persistent logs.
+
+CI 41823010516 PASSED, full build/link, job 126550602429, 9m37s. Log:
+logs/ci-41823010516-success.txt. It confirms the BearSSL fallback worked
+with unchanged pin and patch 0106 applied. Download: xnu/out-0106.
+Kernel SHA256 7c4216f42693965edb643f0da409effa43cd62b8ba7a02bd8c8ad6ae3f62665d
+matches SHA256SUMS. New framebuffer diagnostic and console/surface symbols
+are present. Cortex-A53 scanner has one raw match, K256[57]=0x78a5636f
+at VA 0xfffffff007b2cd54, file 0xb28d54: all 64 table words byte-match
+the SHA-256 constants. NOT an unsupported executable instruction. Old
+kernel has the same table match. Evidence: logs/display-0106-a53-scan.txt.
+
+Created out/display-0106/payload.bin and package/mido-xnu-shim.img using
+the EXACT verified build15 shim, saved ADT and unchanged cmdline.
+Image SHA256 1d72c71d89f26a11c23da8289791c8ca1dc55eab3d14d60347bbae5b809d0d33
+Payload SHA256 acd95ed37113bdc1b08164da469cace44a5c10e12f39116f0999c4e619b65ce4
+Old build15 remains intact. No corrupted host root/sparse image was used.
+
+Device: recovery -> adb reboot bootloader; verified product mido; temporary
+boot of hash-verified lk2nd; verified product lk2nd-msm8953; temporary boot
+of the NEW image completed exit 0 (16222 KB, 0.450s). NO partition flash.
+Boot evidence: logs/display-0106-temp-boot-20261104.json.
+
+THIS ONLY CONFIRMS BOOTLOADER ACCEPTANCE, NOT iOS/SpringBoard SUCCESS.
+Phone is now running the attempted new boot, not confirmed in TWRP.
+NEXT: user photo/current display. If unchanged after 2-3 minutes, user
+returns to TWRP, then pull fresh log to a NEW filename and compare display
+registration/geometry/swaps and SpringBoard exception against prior loop.
+Do not wait blindly 30 minutes, reboot before photo, or claim working touch.
+
+## Prior milestone: BearSSL fallback published
+
+User authorized the additional staging-script change and continued work.
+Commit 2e46a3d08518782233abc3c2123316d8e203aa15 changes ONLY
+xnu/patches/0020-stage-bearssl.sh: upstream first, bounded slow-transfer
+timeout, fallback mirror with unchanged immutable SHA and checkout check.
+Real staging tests pass: primary path, forced upstream failure plus real
+mirror fetch, both sources failing, refusal to overwrite existing source,
+and non-MIDO no-op. Both successful paths byte-match all 30 baseline files.
+Pushed without force after remote sync; push triggered CI 41823010516.
+No duplicate workflow dispatch. Phone still recovery; no device writes.
+NEXT: inspect CI result; on success verify checksum/instruction scan, pack
+a separate image using the saved verified build15 ADT/cmdline/shim, and
+temporarily boot via lk2nd. No partition flashing.
+
+## Prior milestone: CI blocked on BearSSL host
+
+CI 41821338065 attempts 1 and 2 both FAILED BEFORE compilation: staging
+0020-stage-bearssl.sh cannot fetch the official BearSSL host (HTTP 502).
+Attempt 1 job 126544965284; attempt 2 job 126546290799. Failed logs:
+logs/ci-41821338065-failed.txt and ci-41821338065-attempt2-failed.txt.
+No third blind rerun. Packaging failures follow from missing build output.
+This does NOT establish a compile/link failure of display patch 0106.
+
+Seven scanout tests rerun successfully under WSL. Fresh read-only TWRP log
+logs/pre-display-0106-20261104.txt exactly matches the prior baseline
+(601429 bytes, flush 755). Phone remains in TWRP: no writes or reboot.
+Verified build15 ADT and cmdline copied to out/display-0106 for later packing;
+no new kernel/payload/image exists. Original build15 remains unchanged.
+
+Recovery investigation: GitHub edmaren/BearSSL supplies the EXACT existing
+pin 7bea48e5e850ab4cafbe68d3765cdaba13a86d6f. Fetched objects pass git fsck;
+all 30 staged BearSSL files byte-match the successful CI source (including
+the existing inner.h kernel-limits adaptation). Scratch:
+research/bearssl-pin-check. unkaktus/bearssl does NOT supply this ref.
+Official host also times out from local Windows.
+
+NEXT: add a verified same-pin fallback to 0020-stage-bearssl.sh, test staging,
+then rerun CI. This exceeds explicit approval to publish ONLY eight display
+files: no staging-script edit or second commit made. Obtain approval for
+the additional publication rather than silently widening scope.
+No hardware success claim.
+
+User explicitly approved publication. Only the eight display patch/helper/test/
+documentation files were committed as 006601e11a0d813b393a0e3ab665609c287b6ef9
+and pushed without force to existing pub/mido-port. Remote was synchronized
+before committing. Push triggered XNU CI 41821338065; no duplicate dispatch.
+No logs, dumps, repair scripts, NOTES.md or shim/build.sh were published.
+Phone confirmed in recovery; no new device writes or boot yet.
+Next gate: full CI link, checksum and Cortex-A53 scan, then separate new image.
+The implementation/validation details below precede this publication update.
+
+Patch 0106-mido-bgr24-scaled-display.patch is complete locally. It keeps a
+separate BGRA IOSurface for the 1242x2208 iPhone 8 Plus canvas, scales/clips
+flips into the real 1080x1920 BGR24 panel, validates layouts and bounds, allows
+the default surface to flip, corrects HID normalization/clamps, and fixes
+screen-console handover while keeping persistent logs and panic output.
+It also cleans up the newly separate panel/surface resources.
+
+The tested pure helper is mido/display/mido_scanout.h; a consistency test
+checks that the kernel patch embeds identical code. Seven Linux/WSL tests
+pass, including 1500 randomized reference rectangles, a complete physical
+frame, and 10000 ASan/UBSan extreme-rectangle cases. The real fbcon/early-C
+host harness now supports Linux as well as Windows and passes pixel/canary
+and GUI pause/resume checks (canary_bad=0, unexpected colors=0).
+
+All five affected compilation units pass syntax checking AND ARM64 object
+generation using the generated headers/flags from successful CI 41382749979.
+New helper references match their definitions, including the console C ABI.
+The full 74-patch series, INCLUDING 0106, applies; HFS source staging was
+recovered from the pinned successful artifact and its two later changes
+reversed before replay. All seven files exactly match the compiled source.
+Final 0106 was reversed/reapplied after console-handover refinement.
+
+Artifacts: research/display-buildtree, research/display-objects,
+research/verify-display-0106, research/display-fb-test. Evidence under logs:
+display-checks-20261104.json, display-object-compile-20261104.txt,
+display-full-patch-series-20261104.txt. Details: mido/notes/display-0106.md.
+
+Broader Windows suite: 24 pass, 6 native Linux tests skipped, ONE existing
+unrelated SDHC assertion failure in test_mido_shim.py:91 (old expected
+0x07824900/0x500 vs current ADT 0x07824000/0x1000). Do not break the working
+eMMC setup to satisfy that stale expectation. All display assertions pass.
+
+No full kernel link, CI run, new boot image or device write this turn. No git
+commit/push was made: explicit approval is required before publishing the
+patch/tests to mido-port for the macOS build. User has requested continuing
+all fixes; the local display code is ready, but hardware success is NOT proven.
+The current phone remains in TWRP. Existing repaired userdata is untouched.
+Preserve the user's unrelated shim/build.sh edit, earlier uncommitted work,
+logs/dumps and backups. Do NOT publish Apple files, logs or device dumps.
+
+NEXT after publication approval: commit/push ONLY reviewed display patch and
+supporting host tests/docs, use existing CI MIDO/macOS13.5/DEVELOPMENT, verify
+kernel checksums/instructions, create a NEW temporary image and inspect fresh
+device evidence. FT5435 hardware input is not implemented/verified by the HID
+coordinate change; no home screen or working touch claim is justified yet.
+
+## MIDO latest 2026-11-04: userspace reaches SpringBoard, display crash loop
+
+After about half an hour of repeated loading without a panic, the user returned
+to TWRP. Fresh persistent log: logs/boot-after-dyld-repair-20261104.txt,
+MIDOLOG total 601429 bytes, flush 755, no ring wrap. Reading only; no subsequent
+device writes, reboot or build. The prior dyld data repair is CONFIRMED to have
+cleared the previous runtime blocker: no cs_native4k_prepare/check_signature
+errors, no Library not loaded messages, no panic(cpu messages in this log.
+
+Observed next blocker:
+- Line 84: MIDO FB: no boot framebuffer.
+- SpringBoard is executed 62 times and crashes with SIGABRT 62 times.
+- First exception: NSInternalInconsistencyException, We expect a valid bounds
+  for configuration, Main-External, Wireless / wireless0, 0x0 0Hz, zero bounds,
+  availableModes: 0. The repeated same exception explains the apparent loop;
+  more waiting is not a solution. backboardd executes; no backboardd crash
+  record is present. driverkitd has one SIGKILL record; do not confuse it with
+  the repeated SpringBoard blocker or assume all other services work.
+
+Source confirmation: research/work31/iokit/Kernel/arm/MidoFramebuffer.cpp:151
+rejects fRowBytes < fWidth * 4, which is incompatible with the confirmed
+1080x1920 BGR24 splash (3240-byte stride; the guard requires at least 4320).
+The same driver uses BGRA physical surfaces and 4-byte blit math; merely
+relaxing the guard would cause incorrect writes and is NOT a fix.
+Patch 0061 also defaults to iPhone X logical 1125x2436 instead of the requested
+iPhone 8 Plus-style geometry. The old mido/notes/fb-followups.md had already
+flagged the unresolved 24bpp path.
+
+NEXT: adapt display scanout correctly: keep BGRA userland surfaces but convert
+to the actual 3-byte BGR panel on flip, check all bounds/strides, expose a valid
+1080x1920 mode, and keep display/touch coordinates consistent. Add host
+conversion/bounds tests and single-file compilation before spending a kernel
+CI build. No hardware fix or home screen success claimed yet.
+
+## MIDO handoff 2026-11-04: repair APPLIED and temporary boot accepted
+
+User explicitly approved restoring the damaged data and booting the system.
+Before writing, the current phone's HFS+ catalog was read from userdata and
+parsed: both visible hardlinks resolve to iNode340542627 / iNode455404815.
+Their live data forks are single extents at allocation blocks 2584969 (45680
+blocks) and 2689161 (28256 blocks), block size 4096. All four planned ranges
+were confirmed to belong to those files. Product mido, userdata size 57033596416,
+root TWRP ADB, and unmounted userdata were rechecked. Before bytes were read
+again, backed up, and matched the plan; uploaded RAM payloads also matched.
+
+Four bounded dd writes with conv=notrunc,fsync restored 4190208 bytes in
+userdata only. Each range passed immediate readback. BOTH COMPLETE FILES were
+then read from the phone (302841856 bytes total) and their SHA-256 matched the
+verified IPSW replacements listed below. Evidence and actual before-byte
+backups: D:/ios-root-build/audit-20261104/repair-plan, especially
+apply-result.json, live-file-extents.json, whole-device-files-after.json.
+No filesystem metadata, partition table, boot, recovery, modem or persist was
+written. The original host raw/sparse images remain UNCORRECTED: do not flash them.
+
+Temporary boot: adb reboot bootloader; stock fastboot product mido; lk2nd image
+SHA256 2170c90c4b28a0d6dd31ec942500dc1fc4da94a34dbfd0676238ba1de1353cfa
+accepted (send 0.069s, boot 0.041s). Product then verified lk2nd-msm8953.
+Known build15 image SHA256 948e8f82c8ec5e1e53716a17d2872e6743d54300628c24cd8b1863663e3e0540
+accepted (send 0.398s, boot 0.043s, total 0.449s, native exit 0).
+Logs: logs/boot-restored-20261104-lk2nd.txt,
+logs/boot-restored-20261104-lk2nd-state.json, logs/boot-restored-20261104-xnu.json.
+PowerShell rendered fastboot stderr as NativeCommandError; this was NOT a boot
+failure, and the subsequent native call and product check confirmed success.
+
+NEXT: await user's photograph / actual runtime evidence. Fastboot acceptance
+does NOT confirm SpringBoard or that the old error has cleared at runtime.
+Do not reboot blindly. If the phone panics, ask user to enter TWRP and pull a
+NEW persistent log to a new filename. No kernel rebuild was performed.
+
+## MIDO pre-repair audit 2026-11-04 (historical, repair completed above)
+
+This section concerns Redmi Note 4X / MSM8953, not the sweet hardware described below.
+The latest retained device log was read through root ADB in TWRP, without reboot,
+mount, partition writes or flashing: `logs/boot-twrp-20261104.txt`. It reproduces
+the earlier stage-10 `cs_native4k_prepare` EBADEXEC at source line 5812, chunk
+155189248, followed by the PID 1 libSystem / no-dyld-cache panic.
+
+- All 44 local dyld cache files were audited against their embedded CodeDirectory
+  block hashes. 42 passed. `.27.dylddata` has 160 failing 16K blocks from
+  155189248 through 157794304, all zero-filled. `.33` has a damaged signature
+  superblob and other zero-filled ranges. This is present in the saved HFS+ image,
+  not merely an inference about the kernel's 4K conversion.
+- Fresh copies of both files were extracted from the existing local IPSW's
+  SystemOS member `087-86588-047.dmg`; all 18447 signed blocks passed.
+  Replacement files are under `D:/ios-root-build/audit-20261104/replacements`.
+- Four changed physical ranges, totaling 4190208 bytes, were identified through
+  the read-only host HFS+ mount's FIBMAP and checked against the raw host image.
+  All four ranges were read from phone userdata and exactly match the damaged
+  baseline. Actual phone bytes were backed up separately.
+- `D:/ios-root-build/audit-20261104/repair-plan/plan.json` records physical and
+  file offsets, lengths and before/after SHA-256. Device backups, replacement
+  segments, `device-verification.json` and `replay-verification.json` are beside it.
+  Replaying the plan in host memory reconstructs both complete files exactly:
+  `.27.dylddata` SHA256 c53c70c0e3a1a5a1b7f5ba785ff3c821989aafc6456b41340aa2e273a470105e;
+  `.33` SHA256 dc4e1755bf8311fe0be5ae7b1a87c37e21ae34a855fd296359bc7fa41d0f8fca.
+- `tools/audit_dyld_signature.py` is read-only; five synthetic tests pass.
+  `tools/prepare_dyld_repair.py` is a Linux/root, host-only plan generator; it
+  refuses an existing output directory and never modifies its inputs or a device.
+
+NEXT: obtain explicit approval before writing these four ranges to userdata.
+Recheck current device identity, unmounted userdata, live file extent ownership,
+and before hashes immediately before any write; do not rely on a stale plan.
+Read back and verify after hashes, then request a controlled temporary boot using
+the already-tested build15 image. No kernel rebuild or signature bypass is
+justified by this evidence. No repaired image has booted; SpringBoard is NOT
+confirmed. Why the old host image acquired these zero ranges is still unknown.
+The old raw image is untouched; avoid reflashing its uncorrected sparse image.
+
+Host inspection mounts: `/mnt/mido-root-audit` (HFS+, read-only),
+`/mnt/mido-systemos-audit` (APFS-FUSE, read-only). Unmount after inspection.
+
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> UPDATE 2026-10-18 (read first, then the 10-17 handoff below) <<<

@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from patch_sources import kernel_source
 
 
 class Buffer(ctypes.Structure):
@@ -23,11 +24,7 @@ class Rect(ctypes.Structure):
 class PatchConsistencyTests(unittest.TestCase):
     def test_kernel_uses_tested_header(self):
         root = Path(__file__).resolve().parents[2]
-        patch = (root / 'xnu/patches/0106-mido-bgr24-scaled-display.patch').read_text()
-        marker = '+++ b/iokit/Kernel/arm/mido_scanout.h'
-        added = patch.split(marker, 1)[1]
-        header = ''.join(line[1:] + chr(10) for line in added.splitlines()
-                         if line.startswith('+') and not line.startswith('+++'))
+        header = kernel_source(root, "mido_scanout.h", "0106-mido-bgr24-scaled-display.patch")
         self.assertEqual(header, (root / 'mido/display/mido_scanout.h').read_text())
 
 

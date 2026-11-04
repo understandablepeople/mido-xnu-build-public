@@ -8,6 +8,7 @@ struct mido_qup_io {
     uint32_t (*read)(void *, uint32_t);
     void (*write)(void *, uint32_t, uint32_t);
     void (*delay)(void *, unsigned);
+    uint32_t last_status, last_errors, last_operational;
 };
 
 static inline int
@@ -48,6 +49,7 @@ mido_qup_read(struct mido_qup_io *io, uint8_t address, uint8_t reg,
     if (version == 0 || version == UINT32_MAX || (version >> 28) != 2) {
         return -2;
     }
+    io->last_status = io->last_errors = io->last_operational = 0;
     io->write(io->context, 0x0c, 1);
     if (!mido_qup_wait(io, 4, 7, 4, 2000)) {
         io->write(io->context, 0x0c, 1);
@@ -99,6 +101,9 @@ mido_qup_read(struct mido_qup_io *io, uint8_t address, uint8_t reg,
         uint32_t status = io->read(io->context, 0x404);
         uint32_t errors = io->read(io->context, 0x1c);
         uint32_t operational = io->read(io->context, 0x18);
+        io->last_status = status;
+        io->last_errors = errors;
+        io->last_operational = operational;
         if ((status & 0x380003c) != 0 || (errors & 0x3c) != 0) {
             result = -7;
             break;

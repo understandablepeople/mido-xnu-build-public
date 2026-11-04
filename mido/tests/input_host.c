@@ -87,7 +87,7 @@ int host_qup(unsigned mode, unsigned length, unsigned block, uint8_t *result,
     for (unsigned index = 2; index < mock.input_length; index++) {
         mock.input[index] = (uint8_t)(index - 2);
     }
-    struct mido_qup_io io = {&mock, mock_read, mock_write, mock_delay};
+    struct mido_qup_io io = {&mock, mock_read, mock_write, mock_delay, 0, 0, 0};
     int status = mido_qup_read(&io, 0x38, 0, result, length);
     memcpy(command, mock.output, sizeof(mock.output));
     *writes = mock.writes;
