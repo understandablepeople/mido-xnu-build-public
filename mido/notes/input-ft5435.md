@@ -35,8 +35,12 @@ SMP remains cpus=1; eMMC retry and repaired on-device root remain unchanged.
 Local checks: ARM64 Mach-O compilation succeeds for MidoInput, MidoHID and
 KernelConfigTables. Native mocked transport/state tests cover boundaries,
 partial transfers, errors, timeouts, slot reconciliation and sanitizer stress.
-Patch application against the verified 0106 tree passes. CI/hardware results
-must be recorded separately before claiming a working fix.
+Patch application against the verified 0106 tree passes. Full CI 41839208377
+at 95d386e passed in 6m26s. Downloaded kernel SHA256 is
+8967aa380d51bb20d7eee7fe17d82b24cd83a1369df1c90af7281e5ee0944f5e.
+The A53 scanner's sole raw match is the same complete SHA256 constant table
+as 0106, not an instruction. A separate one-core image is packaged with the
+previous shim, DTB, ADT and command line unchanged. NO hardware boot yet.
 
 ## Pure, host-tested helpers
 
@@ -80,9 +84,9 @@ Run from Linux/WSL:
 4. Integrate driver start after scheduler/HID availability, compile ARM64
    objects, apply the complete patch series, then full CI link. Only afterward
    temporarily boot a separately named image and collect fresh evidence.
-5. Power/volume-down require PM8953 PON via read-only SPMI; battery requires
-   PMI8950 fuel-gauge telemetry. Neither is implemented by these touch helpers.
-   Never publish a recovery snapshot as live XNU charge percentage.
+5. Power/volume-down use PM8953 PON via read-only SPMI; battery uses PMI8950
+   telemetry in MidoInput, not the pure touch helpers. Both need a hardware
+   test. Never publish a recovery snapshot as live XNU charge percentage.
 
 The optional two-core diagnostic image remains unbooted. Keep SMP testing
 separate from input changes. No boot/reboot/flash is needed for these tests.
