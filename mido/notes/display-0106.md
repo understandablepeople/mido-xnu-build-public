@@ -60,16 +60,21 @@ Commands from the repository root (Linux/WSL for native C tests):
     python3 -m unittest discover -s mido/tests -p test_mido_scanout.py -v
     python3 mido/tests/fb/run_fb_test.py research/display-buildtree/xnu research/display-fb-test
 
-## Not verified / next gate
+## Full build and temporary boot
 
-No full kernel CI build, full link, new boot image or hardware test of 0106.
-Do not claim the SpringBoard crash loop is fixed on the phone until a new
-kernel is built and the fresh device log proves it. Other service failures,
-touch hardware, GPU and the rest of the port are not proven by these tests.
+CI 41823010516 passed the full kernel build/link on 2026-11-04. The
+downloaded kernel matches its SHA256SUMS entry:
+`7c4216f42693965edb643f0da409effa43cd62b8ba7a02bd8c8ad6ae3f62665d`.
+The Cortex-A53 scanner has one raw match in SHA-256 constant K256[57],
+not an instruction; all 64 table words were checked against the source.
+The BearSSL host outage was bypassed with a same-pin mirror fallback.
 
-Publishing a commit/push to `mido-port` needs explicit user approval. Only
-then run the existing XNU workflow with MIDO, macOS 13.5, DEVELOPMENT; verify
-the kernel checksum and Cortex-A53 instruction scan before packing a new,
-separately named temporary boot image. Preserve build15 and all root backups.
+A separate image preserves the verified build15 shim, ADT and cmdline,
+replacing only the kernel. It was temporarily booted through verified
+lk2nd; both fastboot boot commands completed successfully, with no flash.
+This proves bootloader acceptance ONLY. A fresh device log and screen
+observation are still required before claiming that the SpringBoard loop
+is fixed. Touch hardware, GPU and other services remain unverified.
+Preserve build15 and all root backups.
 Do not flash the old host root/sparse image: it still has the dyld corruption
 that was repaired only on the phone.
