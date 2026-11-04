@@ -1,5 +1,17 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-04: 0108 built, three RAM-boot images ready, NOT booted
+
+CI 41889781357 (rerun after GitHub macOS runner capacity cancel) PASSED.
+Kernel xnu/out-0108/xnu-kernel/kernel.development.mido SHA256
+bf62aff1905cabaf1093b0956245d95b9563d9c095f1604967ff8cffbe900399.
+Scanner: one raw hit = SHA256 K256[57] data table, not code.
+Images (shim/DTB/ADT identical to 0107, payload differs only at 0x60 cpus=N):
+out/input-0108-1cpu 593803e5..., -2cpu fe626e21..., -8cpu c4a8cde3...
+Order: 2cpu first (SMP + QUP status bits in one boot); panic -> photo -> 1cpu.
+8cpu only after 2cpu log is clean. Touch is still diagnostic-only in 0108.
+Validation logs/input-0108-validation.json.
+
 ## MIDO active 2026-11-04: 0107 GUI/input evidence; 0108 local checks PASS
 
 User saw lock screen; power/volume visible responses delayed by minutes.
