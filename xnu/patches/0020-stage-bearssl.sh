@@ -7,8 +7,14 @@ bearssl_sha=7bea48e5e850ab4cafbe68d3765cdaba13a86d6f
 bearssl_tmp=$(mktemp -d)
 trap 'rm -rf "$bearssl_tmp"' EXIT
 git init -q "$bearssl_tmp"
-git -C "$bearssl_tmp" fetch -q --depth 1 \
-    https://www.bearssl.org/git/BearSSL "$bearssl_sha"
+if ! git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
+    -C "$bearssl_tmp" fetch -q --depth 1 \
+    https://www.bearssl.org/git/BearSSL "$bearssl_sha"; then
+    echo "BearSSL upstream unavailable; fetching the same pinned commit from mirror" >&2
+    git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
+        -C "$bearssl_tmp" fetch -q --depth 1 \
+        https://github.com/edmaren/BearSSL.git "$bearssl_sha"
+fi
 git -C "$bearssl_tmp" checkout -q FETCH_HEAD
 [[ "$(git -C "$bearssl_tmp" rev-parse HEAD)" == "$bearssl_sha" ]]
 python3 - "$bearssl_tmp" <<'PY'
