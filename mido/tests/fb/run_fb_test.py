@@ -2,7 +2,7 @@
 """Build and run fb_host_test.c against a patched xnu tree, then write PNGs.
 
 usage: run_fb_test.py <patched-xnu-root> [outdir]
-Needs `pip install ziglang` (zig cc is the host C compiler) and a Windows host.
+Needs ziglang on Windows, or a host C compiler on Linux.
 The code under test is extracted from the patched tree, not copied.
 """
 import os
@@ -17,6 +17,7 @@ W, H = 1080, 1920
 root = os.path.abspath(sys.argv[1])
 here = os.path.dirname(os.path.abspath(__file__))
 out = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else here
+os.makedirs(out, exist_ok=True)
 
 
 def read(p):
@@ -47,8 +48,9 @@ with open(os.path.join(tmp, "pexpert", "arm64", "board_config.h"), "w") as f:
 with open(os.path.join(tmp, "kern", "misc_protos.h"), "w") as f:
     f.write("#include <stdarg.h>\nint _doprnt(const char *, va_list *, void (*)(char), int);\n")
 
-exe = os.path.join(tmp, "t.exe")
-subprocess.check_call([sys.executable, "-m", "ziglang", "cc", "-std=gnu11", "-Wall", "-Wextra",
+exe = os.path.join(tmp, "t.exe" if os.name == "nt" else "t")
+compiler = [sys.executable, "-m", "ziglang", "cc"] if os.name == "nt" else [os.environ.get("CC", "cc")]
+subprocess.check_call(compiler + ["-std=gnu11", "-Wall", "-Wextra",
                        "-Wno-unused-function", "-Wno-unused-parameter", "-I", tmp,
                        os.path.join(here, "fb_host_test.c"), "-o", exe], cwd=tmp)
 r = subprocess.run([exe, out], cwd=tmp)

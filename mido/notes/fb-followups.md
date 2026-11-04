@@ -1,5 +1,11 @@
 # Framebuffer follow-ups (24bpp BGR, 0x90001000, 1080x1920, stride 3240)
 
+2026-11-04: appended patch 0106 addresses the display/BGRA-to-BGR24 path and
+HID geometry described below. Host tests, clean-series application and five
+ARM64 compilation units pass; no new kernel has been linked or booted yet.
+See display-0106.md. The original findings below are historical; do not
+reimplement them as if patch 0106 did not exist.
+
 Written while adapting xnu patches 0003, 0010, 0012. Nothing below was edited; these are for the owners of the files.
 
 ## Single source of constants

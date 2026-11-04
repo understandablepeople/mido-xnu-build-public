@@ -3,14 +3,31 @@
  * Compiled from run_fb_test.py, which extracts the REAL source from a patched
  * xnu tree (the fbcon block of pexpert/arm/pe_serial.c and all of
  * osfmk/arm64/mido_early.c); nothing here is a copy of the logic.
- * Windows host only: VirtualAlloc at 0x90000000 stands in for the splash.
+ * Host memory at 0x90000000 stands in for the splash.
  */
+#ifndef _WIN32
+#define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdarg.h>
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <sys/mman.h>
+static void *host_virtual_alloc(void *address, size_t length)
+{
+	int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+	if (address != NULL) {
+		flags |= MAP_FIXED_NOREPLACE;
+	}
+	void *result = mmap(address, length, PROT_READ | PROT_WRITE, flags, -1, 0);
+	return result == MAP_FAILED ? NULL : result;
+}
+#define VirtualAlloc(address, length, allocation, protection) host_virtual_alloc(address, length)
+#endif
 
 #define SECURITY_READ_ONLY_LATE(x) x
 #include "iso_font.c"
@@ -95,6 +112,21 @@ main(int argc, char **argv)
 		fbcon_tprint(b);
 	}
 
+	uint8_t *snapshot = malloc(MIDO_FB_SIZE);
+	if (snapshot == NULL) {
+		return 1;
+	}
+	memcpy(snapshot, alias + MIDO_FB_BLOCK_OFFSET, MIDO_FB_SIZE);
+	uint32_t saved_col = fbcon_col, saved_row = fbcon_row;
+	mido_fbcon_set_gui(1);
+	fbcon_tprint("GUI owns the panel\n");
+	if (memcmp(snapshot, alias + MIDO_FB_BLOCK_OFFSET, MIDO_FB_SIZE) != 0 ||
+	    fbcon_col != saved_col || fbcon_row != saved_row) {
+		bad++;
+	}
+	mido_fbcon_set_gui(0);
+	fbcon_tprint("Console resumed after GUI\n");
+	free(snapshot);
 	/* canaries outside the pixel window must be untouched (no overrun, no stride skew past the end) */
 	for (size_t i = 0; i < MIDO_FB_BLOCK_OFFSET; i++) {
 		if (blk[i] != 0xEE || alias[i] != 0xEE) {

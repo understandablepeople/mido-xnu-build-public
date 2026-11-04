@@ -1,0 +1,598 @@
+--- a/iokit/Kernel/arm/MidoFramebuffer.cpp
++++ b/iokit/Kernel/arm/MidoFramebuffer.cpp
+@@ -1,6 +1,6 @@
+ /*
+  * Built-in IOMobileFramebuffer for MIDO: the ABL's continuous-splash
+- * framebuffer (1080x2400 a8r8g8b8 in RAM, the panel scans it out by
++ * framebuffer (1080x1920 BGR24 in RAM, the panel scans it out by
+  * itself) as the main display, driven by CoreAnimation's CPU renderer.
+  *
+  * IOMobileFramebuffer.framework (iOS 16.7) counts /arm-io children with
+@@ -24,12 +24,12 @@
+  * sends (count, mach_absolute_time, 0) as 32-bit halves to clients that
+  * enabled it, through the port they registered (IOConnectSetNotificationPort).
+  *
+- * The panel memory itself is published as an IOSurface and returned as the
+- * default framebuffer surface. The kernel text console keeps drawing over
+- * the GUI by default: pausing it (boot-arg midofb_noconsole=1, on the
+- * first swap) switches the console to serial, which also hides panics.
++ * A BGRA shadow is returned as the default framebuffer surface. The first
++ * swap pauses screen text while preserving the persistent log; panic entry
++ * restores screen text. midofb_noconsole=0 keeps text visible for diagnosis.
+  */
+ #include "MidoSurface.h"
++#include "mido_scanout.h"
+ 
+ #if defined(MIDO)
+ #include <IOKit/IOService.h>
+@@ -61,18 +61,7 @@
+ #define MIDO_FB_NOTIFY_TYPES           8
+ #define MIDO_FB_NOTIFY_VSYNC           5
+ #define MIDO_FB_VSYNC_US               16667
+-#define MIDO_FB_DOT_PITCH              458     /* ppi, as the iPhone X panel */
+-/*
+- * The iOS userland only has status bar / layout data for real iPhone
+- * screens (UIKit: "No status bar visual provider for screen", the red
+- * rdar://45025538 bar for 360x800 points). The display is therefore
+- * presented as the iPhone X panel, 1125x2436 (375x812 points @3x), and the
+- * centered 1080x2400 part of it is shown on the 1080x2400 panel.
+- * Boot-arg midofb_native=1 presents the real panel size instead.
+- */
+-#define MIDO_FB_LOGICAL_W              1125
+-#define MIDO_FB_LOGICAL_H              2436
+-#define MIDO_FB_FORMAT_BGRA            0x42475241
++#define MIDO_FB_DOT_PITCH              401
+ 
+ class IOMobileFramebuffer : public IOService {
+ 	OSDeclareDefaultStructors(IOMobileFramebuffer);
+@@ -95,16 +84,19 @@
+ 	uint64_t      fPhys;
+ 	uint32_t      fWidth, fHeight, fRowBytes;
+ 	uint32_t      fLogicalW, fLogicalH;     /* size reported to userland */
+-	int32_t       fOffX, fOffY;             /* logical origin of the panel */
++	uint32_t      fPixelBytes;
++	uint64_t      fPanelLength;
++	IOMemoryDescriptor *fPanelMemory;
+ 	uintptr_t     fPixels;          /* kernel mapping of the panel memory */
+ 	IOMemoryMap  *fMap;
+-	MidoSurface *fSurface;         /* the panel memory as an IOSurface */
++	MidoSurface *fSurface;
+ 	IOLock       *fLock;            /* swaps and client list */
+ 	OSArray      *fClients;
+ 	uint32_t      fSwapID;
+ 	bool          fConsolePaused;
+ 
+ 	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++	void free() APPLE_KEXT_OVERRIDE;
+ 	void addClient(IOMobileFramebufferUserClient *client);
+ 	void removeClient(IOMobileFramebufferUserClient *client);
+ 	void swap(const uint8_t *rec);
+@@ -135,42 +127,45 @@
+ 
+ OSDefineMetaClassAndStructors(IOMobileFramebufferUserClient, IOUserClient);
+ 
++extern "C" void mido_fbcon_set_gui(int active);
++
+ bool
+ AppleCLCD::start(IOService *provider)
+ {
+-	PE_Video video;
+-
+-	if (!IOService::start(provider)) {
+-		return false;
+-	}
+-	PE_current_console(&video);
++	PE_Video video = {};
++	if (!IOService::start(provider) || PE_current_console(&video) != 0) {
++		return false;
++	}
+ 	fPhys = video.v_baseAddr;
+ 	fWidth = (uint32_t)video.v_width;
+ 	fHeight = (uint32_t)video.v_height;
+ 	fRowBytes = (uint32_t)video.v_rowBytes;
+-	if (fPhys == 0 || fWidth == 0 || fHeight == 0 || fRowBytes < fWidth * 4) {
+-		IOLog("MIDO FB: no boot framebuffer\n");
++	fPixelBytes = video.v_depth == 24 ? 3 : (video.v_depth == 32 ? 4 : 0);
++	if (fPhys == 0 || fWidth != MIDO_PANEL_WIDTH || fHeight != MIDO_PANEL_HEIGHT ||
++	    fPixelBytes == 0 || fRowBytes < fWidth * fPixelBytes || fRowBytes > 65536) {
++		IOLog("MIDO FB: invalid panel %ux%u stride %u depth %lu at 0x%llx\n",
++		    fWidth, fHeight, fRowBytes, (unsigned long)video.v_depth, fPhys);
+ 		return false;
+ 	}
+ 	int native = 0;
+ 	PE_parse_boot_argn("midofb_native", &native, sizeof(native));
+-	fLogicalW = fWidth;
+-	fLogicalH = fHeight;
+-	if (!native && fWidth <= MIDO_FB_LOGICAL_W && fHeight <= MIDO_FB_LOGICAL_H) {
+-		fLogicalW = MIDO_FB_LOGICAL_W;
+-		fLogicalH = MIDO_FB_LOGICAL_H;
+-	}
+-	fOffX = (int32_t)(fLogicalW - fWidth) / 2;
+-	fOffY = (int32_t)(fLogicalH - fHeight) / 2;
++	fLogicalW = native ? fWidth : MIDO_CANVAS_WIDTH;
++	fLogicalH = native ? fHeight : MIDO_CANVAS_HEIGHT;
++	fPanelLength = (uint64_t)fRowBytes * fHeight;
+ 	fLock = IOLockAlloc();
+ 	fClients = OSArray::withCapacity(4);
+-	fSurface = mido_surface_create_physical(fPhys, fWidth, fHeight, fRowBytes, MIDO_FB_FORMAT_BGRA);
+-	fPixels = fSurface != NULL ? fSurface->kernelAddress() : 0;
++	fPanelMemory = IOMemoryDescriptor::withPhysicalAddress(fPhys,
++	    fPanelLength, kIODirectionInOut);
++	fMap = fPanelMemory != NULL ? fPanelMemory->map(kIOMapWriteCombineCache) : NULL;
++	fPixels = fMap != NULL ? (uintptr_t)fMap->getVirtualAddress() : 0;
+ 	fWorkLoop = IOWorkLoop::workLoop();
+ 	if (fLock == NULL || fClients == NULL || fPixels == 0 || fWorkLoop == NULL) {
+-		IOLog("MIDO FB: setup failed\n");
+-		OSSafeReleaseNULL(fSurface);    /* stays published: also held by the table */
+-		OSSafeReleaseNULL(fWorkLoop);
++		IOLog("MIDO FB: panel mapping setup failed\n");
++		return false;
++	}
++	fSurface = mido_surface_create_buffer(fLogicalW, fLogicalH, MIDO_PIXEL_BGRA);
++	if (fSurface == NULL) {
++		IOLog("MIDO FB: BGRA default surface allocation failed\n");
+ 		return false;
+ 	}
+ 	fVsync = IOTimerEventSource::timerEventSource(this, &AppleCLCD::vsyncFired);
+@@ -178,15 +173,40 @@
+ 		IOLog("MIDO FB: no vsync timer\n");
+ 		return false;
+ 	}
+-	fVsync->setTimeoutUS(MIDO_FB_VSYNC_US);
+-
++	provider->setProperty("canvas-width", &fLogicalW, sizeof(fLogicalW));
++	provider->setProperty("canvas-height", &fLogicalH, sizeof(fLogicalH));
+ 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
+ 	setProperty("external", false);
+ 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
+ 	registerService();
+-	IOLog("MIDO FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
+-	    fWidth, fHeight, fRowBytes, fPhys, fSurface->id, fLogicalW, fLogicalH);
++	fVsync->setTimeoutUS(MIDO_FB_VSYNC_US);
++	IOLog("MIDO FB: AppleCLCD %ux%u stride %u depth %lu at 0x%llx, BGRA surface %u, canvas %ux%u\n",
++	    fWidth, fHeight, fRowBytes, (unsigned long)video.v_depth, fPhys,
++	    fSurface->id, fLogicalW, fLogicalH);
+ 	return true;
++}
++
++void
++AppleCLCD::free()
++{
++	mido_fbcon_set_gui(0);
++	if (fVsync != NULL) {
++		fVsync->cancelTimeout();
++		if (fWorkLoop != NULL) {
++			fWorkLoop->removeEventSource(fVsync);
++		}
++	}
++	OSSafeReleaseNULL(fVsync);
++	OSSafeReleaseNULL(fWorkLoop);
++	OSSafeReleaseNULL(fClients);
++	mido_surface_release_kernel(fSurface);
++	fSurface = NULL;
++	OSSafeReleaseNULL(fMap);
++	OSSafeReleaseNULL(fPanelMemory);
++	if (fLock != NULL) {
++		IOLockFree(fLock);
++	}
++	IOMobileFramebuffer::free();
+ }
+ 
+ void
+@@ -240,97 +260,69 @@
+ 
+ static uint32_t mido_fb_swaps_logged;
+ 
+-/* Copy each enabled layer's surface into the panel memory (no scaling). */
+ void
+ AppleCLCD::swap(const uint8_t *rec)
+ {
+ 	uint32_t mask = get32(rec, 0x104);
+-
+-	if (!fConsolePaused) {
+-		int quiet = 0;
+-		fConsolePaused = true;
+-		if (PE_parse_boot_argn("midofb_noconsole", &quiet, sizeof(quiet)) && quiet != 0) {
+-			PE_Video video;
+-			PE_current_console(&video);
+-			PE_initialize_console(&video, kPEDisableScreen);
+-		}
+-	}
+-
++	IOLockLock(fLock);
++	struct mido_pixel_buffer target = {
++		(uint8_t *)fPixels, fPanelLength, fWidth, fHeight, fRowBytes, fPixelBytes
++	};
+ 	for (uint32_t layer = 0; layer < MIDO_FB_LAYERS; layer++) {
+ 		uint32_t id = get32(rec, 0x54 + 4 * layer);
+-		const uint8_t *a = rec + 0x64 + 16 * layer;
+-		const uint8_t *b = rec + 0xc4 + 16 * layer;
+-		int32_t sx = (int32_t)get32(a, 0), sy = (int32_t)get32(a, 4);
+-		int32_t dx = (int32_t)get32(b, 0), dy = (int32_t)get32(b, 4);
+-		int32_t w = (int32_t)get32(b, 8), h = (int32_t)get32(b, 12);
+-
+ 		if (!(mask & (1u << layer)) || id == 0) {
+ 			continue;
+ 		}
+-		MidoSurface *s = mido_surface_copy(id);
++		MidoSurface *surface = mido_surface_copy(id);
++		if (surface == NULL) {
++			continue;
++		}
++		const uint8_t *sourceRect = rec + 0x64 + 16 * layer;
++		const uint8_t *targetRect = rec + 0xc4 + 16 * layer;
++		struct mido_blit_rect rect = {
++			(int32_t)get32(sourceRect, 0), (int32_t)get32(sourceRect, 4),
++			(int32_t)get32(sourceRect, 8), (int32_t)get32(sourceRect, 12),
++			(int32_t)get32(targetRect, 0), (int32_t)get32(targetRect, 4),
++			(int32_t)get32(targetRect, 8), (int32_t)get32(targetRect, 12)
++		};
++		if (rect.source_width <= 0 || rect.source_height <= 0) {
++			rect.source_width = (int32_t)surface->width;
++			rect.source_height = (int32_t)surface->height;
++		}
++		if (rect.target_width <= 0 || rect.target_height <= 0) {
++			rect.target_width = rect.source_width;
++			rect.target_height = rect.source_height;
++		}
++		uint64_t copied = 0;
++		if (surface->memory != NULL && surface->offset <= surface->memory->getLength() &&
++		    surface->bytesPerElement == 4 && surface->elementWidth == 1 &&
++		    surface->elementHeight == 1 && surface->planeCount <= 1 &&
++		    (surface->pixelFormat == MIDO_PIXEL_BGRA || surface->pixelFormat == MIDO_PIXEL_BGRX)) {
++			uintptr_t address = surface->kernelAddress();
++			if (address != 0) {
++				struct mido_pixel_buffer source = {
++					(uint8_t *)(address + surface->offset),
++					surface->memory->getLength() - surface->offset,
++					surface->width, surface->height, surface->bytesPerRow, 4
++				};
++				copied = mido_scanout_blit(&source, &target, fLogicalW, fLogicalH, &rect);
++			}
++		}
++		if (copied != 0 && !fConsolePaused) {
++			int quiet = 1;
++			PE_parse_boot_argn("midofb_noconsole", &quiet, sizeof(quiet));
++			mido_fbcon_set_gui(quiet != 0);
++			fConsolePaused = true;
++		}
+ 		if (mido_fb_swaps_logged < 16) {
+ 			mido_fb_swaps_logged++;
+-			IOLog("MIDO FB: swap %u layer %u surface %u %ux%u fmt 0x%x bpr %u a %d,%d %ux%u b %d,%d %dx%d\n",
+-			    get32(rec, 0x50), layer, id, s ? s->width : 0, s ? s->height : 0,
+-			    s ? s->pixelFormat : 0, s ? s->bytesPerRow : 0, sx, sy, get32(a, 8),
+-			    get32(a, 12), dx, dy, w, h);
+-		}
+-		if (s == NULL || s == fSurface) {
+-			OSSafeReleaseNULL(s);
+-			continue;
+-		}
+-		uintptr_t src = s->kernelAddress();
+-		uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
+-		if (w <= 0 || h <= 0) {
+-			w = (int32_t)s->width;
+-			h = (int32_t)s->height;
+-		}
+-		if (sx < 0 || sy < 0) {
+-			sx = sy = 0;
+-		}
+-		if (dx < 0 || dy < 0) {
+-			dx = dy = 0;
+-		}
+-		/* Logical (presented) display coordinates -> panel coordinates. */
+-		dx -= fOffX;
+-		dy -= fOffY;
+-		if (dx < 0) {
+-			sx -= dx;
+-			w += dx;
+-			dx = 0;
+-		}
+-		if (dy < 0) {
+-			sy -= dy;
+-			h += dy;
+-			dy = 0;
+-		}
+-		if (w > (int32_t)s->width - sx) {
+-			w = (int32_t)s->width - sx;
+-		}
+-		if (h > (int32_t)s->height - sy) {
+-			h = (int32_t)s->height - sy;
+-		}
+-		if (w > (int32_t)fWidth - dx) {
+-			w = (int32_t)fWidth - dx;
+-		}
+-		if (h > (int32_t)fHeight - dy) {
+-			h = (int32_t)fHeight - dy;
+-		}
+-		uint64_t last = (uint64_t)s->offset + (uint64_t)(sy + h - 1) * s->bytesPerRow +
+-		    (uint64_t)(sx + w) * 4;
+-		if (w <= 0 || h <= 0 || s->elementWidth != 1 || s->elementHeight != 1 ||
+-		    s->memory == NULL || last > s->memory->getLength()) {
+-			src = 0;
+-		}
+-		if (src != 0 && bpe == 4) {
+-			for (int32_t y = 0; y < h; y++) {
+-				memcpy((void *)(fPixels + (uint64_t)(dy + y) * fRowBytes + (uint64_t)dx * 4),
+-				    (const void *)(src + s->offset + (uint64_t)(sy + y) * s->bytesPerRow + (uint64_t)sx * 4),
+-				    (size_t)w * 4);
+-			}
+-		}
+-		s->release();
+-	}
++			IOLog("MIDO FB: swap %u layer %u surface %u %ux%u fmt 0x%x bpr %u copied %llu pixels\n",
++			    get32(rec, 0x50), layer, id, surface->width, surface->height,
++			    surface->pixelFormat, surface->bytesPerRow, copied);
++		}
++		surface->release();
++	}
++	IOLockUnlock(fLock);
+ }
+ 
+ bool
+--- a/iokit/Kernel/arm/MidoSurface.cpp
++++ b/iokit/Kernel/arm/MidoSurface.cpp
+@@ -246,6 +246,52 @@
+ 		return NULL;
+ 	}
+ 	return s;
++}
++
++MidoSurface *
++mido_surface_create_buffer(uint32_t width, uint32_t height, uint32_t pixelFormat)
++{
++	if (width == 0 || height == 0 || width > 16384 || height > 16384) {
++		return NULL;
++	}
++	MidoSurface *surface = mido_surface_alloc();
++	if (surface == NULL) {
++		return NULL;
++	}
++	surface->width = width;
++	surface->height = height;
++	surface->bytesPerRow = (width * 4 + 63) & ~63U;
++	surface->bytesPerElement = 4;
++	surface->elementWidth = surface->elementHeight = 1;
++	surface->pixelFormat = pixelFormat;
++	surface->allocSize = (uint32_t)round_page((uint64_t)surface->bytesPerRow * height);
++	uint64_t previous = (uint64_t)OSAddAtomic64(surface->allocSize,
++	    (volatile SInt64 *)&mido_surface_wired);
++	if (previous + surface->allocSize <= MIDO_SURFACE_WIRED_MAX) {
++		surface->memory = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
++		    kIODirectionInOut | kIOMemoryKernelUserShared, surface->allocSize, page_size);
++	}
++	if (surface->memory == NULL) {
++		OSAddAtomic64(-(SInt64)surface->allocSize, (volatile SInt64 *)&mido_surface_wired);
++		surface->release();
++		return NULL;
++	}
++	surface->mapCache = kIOMapDefaultCache;
++	bzero((void *)surface->kernelAddress(), surface->allocSize);
++	if (!mido_surface_publish(surface)) {
++		surface->release();
++		return NULL;
++	}
++	return surface;
++}
++
++void
++mido_surface_release_kernel(MidoSurface *surface)
++{
++	if (surface != NULL) {
++		mido_surface_put(surface);
++		surface->release();
++	}
+ }
+ 
+ mach_port_name_t
+--- a/iokit/Kernel/arm/MidoSurface.h
++++ b/iokit/Kernel/arm/MidoSurface.h
+@@ -59,6 +59,9 @@
+     uint32_t height, uint32_t bytesPerRow, uint32_t pixelFormat);
+ 
+ /* Send right for the surface in task (IOSurfaceLookupFromMachPort). */
++MidoSurface *mido_surface_create_buffer(uint32_t width, uint32_t height, uint32_t pixelFormat);
++void mido_surface_release_kernel(MidoSurface *surface);
++
+ mach_port_name_t mido_surface_port_in_task(MidoSurface *surface, task_t task);
+ 
+ #endif /* MIDO */
+--- a/iokit/Kernel/arm/hid/MidoHID.cpp
++++ b/iokit/Kernel/arm/hid/MidoHID.cpp
+@@ -22,6 +22,7 @@
+ #include <libkern/c++/OSArray.h>
+ #include <pexpert/pexpert.h>
+ 
++#include "../mido_scanout.h"
+ #include "IOHIDEventService.h"
+ #include "IOHIDEventServiceUserClient.h"
+ #include "IOHIDEvent.h"
+@@ -359,7 +360,6 @@
+ 	virtual UInt32 getProductID() APPLE_KEXT_OVERRIDE { return 2; }
+ private:
+ 	IOLock *fLock;
+-	int fLogicalW, fLogicalH, fOffX, fOffY;
+ 	bool fDown[MIDO_TOUCH_FINGERS];
+ 	IOFixed fX[MIDO_TOUCH_FINGERS];
+ 	IOFixed fY[MIDO_TOUCH_FINGERS];
+@@ -423,16 +423,10 @@
+ 	if (!fLock || !IOHIDEventService::start(provider)) {
+ 		return false;
+ 	}
+-	int native = 0;
+-	PE_parse_boot_argn("midofb_native", &native, sizeof(native));
+-	fLogicalW = native ? 1080 : 1125;
+-	fLogicalH = native ? 2400 : 2436;
+-	fOffX = (fLogicalW - 1080) / 2;
+-	fOffY = (fLogicalH - 2400) / 2;
+ 	/* The digitizer covers the main display (backboardd maps it 1:1). */
+ 	setProperty("DisplayIntegrated", kOSBooleanTrue);
+ 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
+-	setProperty("SurfaceHeight", (unsigned long long)(151 << 16), 32);
++	setProperty("SurfaceHeight", (unsigned long long)(122 << 16), 32);
+ 	gMidoTouch = this;
+ 	registerService();
+ 	IOLog("MIDO HID: touch registered\n");
+@@ -449,14 +443,11 @@
+ 	if (finger < 0 || finger >= MIDO_TOUCH_FINGERS) {
+ 		return;
+ 	}
+-	x = x < 0 ? 0 : (x > 1079 ? 1079 : x);
+-	y = y < 0 ? 0 : (y > 2399 ? 2399 : y);
+ 
+ 	IOLockLock(fLock);
+ 	bool was = fDown[finger];
+-	/* Panel pixels -> the presented 1125x2436 display (MidoFramebuffer.cpp). */
+-	IOFixed nx = (IOFixed)(((int64_t)(x + fOffX) << 16) / fLogicalW);
+-	IOFixed ny = (IOFixed)(((int64_t)(y + fOffY) << 16) / fLogicalH);
++	IOFixed nx = (IOFixed)mido_touch_coordinate(x, MIDO_PANEL_WIDTH);
++	IOFixed ny = (IOFixed)mido_touch_coordinate(y, MIDO_PANEL_HEIGHT);
+ 	bool moved = down && (nx != fX[finger] || ny != fY[finger]);
+ 	if (was == down && !moved) {
+ 		IOLockUnlock(fLock);
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -767,9 +767,20 @@
+ 	return 1;
+ }
+ 
++static volatile int fbcon_gui_active;
++
++void
++mido_fbcon_set_gui(int active)
++{
++	fbcon_gui_active = active != 0;
++}
++
+ static void
+ fbcon_transmit_data(uint8_t c)
+ {
++	if (fbcon_gui_active) {
++		return;
++	}
+ 	if (c == '\r') {
+ 		fbcon_col = 0;
+ 		return;
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1073,6 +1073,8 @@
+ #pragma clang diagnostic pop
+ 
+ #if defined(MIDO)
++	extern void mido_fbcon_set_gui(int active);
++	mido_fbcon_set_gui(0);
+ 	/* No CPU/thread/debugger state is required for this first panic copy. */
+ 	mido_early_panic(panic_format_str, panic_args);
+ #endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_scanout.h
+@@ -0,0 +1,110 @@
++#ifndef MIDO_SCANOUT_H
++#define MIDO_SCANOUT_H
++
++#include <stdint.h>
++#include <stddef.h>
++
++#define MIDO_PANEL_WIDTH 1080U
++#define MIDO_PANEL_HEIGHT 1920U
++#define MIDO_CANVAS_WIDTH 1242U
++#define MIDO_CANVAS_HEIGHT 2208U
++#define MIDO_PIXEL_BGRA 0x42475241U
++#define MIDO_PIXEL_BGRX 0x42475258U
++
++struct mido_pixel_buffer {
++    uint8_t *pixels;
++    uint64_t length;
++    uint32_t width, height, row_bytes, pixel_bytes;
++};
++
++struct mido_blit_rect {
++    int32_t source_x, source_y, source_width, source_height;
++    int32_t target_x, target_y, target_width, target_height;
++};
++
++static inline int
++mido_buffer_valid(const struct mido_pixel_buffer *buffer)
++{
++    return buffer != NULL && buffer->pixels != NULL &&
++        buffer->width > 0 && buffer->height > 0 &&
++        buffer->width <= 16384 && buffer->height <= 16384 &&
++        (buffer->pixel_bytes == 3 || buffer->pixel_bytes == 4) &&
++        (uint64_t)buffer->width * buffer->pixel_bytes <= buffer->row_bytes &&
++        (uint64_t)(buffer->height - 1) * buffer->row_bytes +
++        (uint64_t)buffer->width * buffer->pixel_bytes <= buffer->length;
++}
++
++static inline uint32_t
++mido_touch_coordinate(int32_t position, uint32_t extent)
++{
++    if (extent == 0) {
++        return 0;
++    }
++    uint32_t clamped = position < 0 ? 0 : (uint32_t)position;
++    if (clamped >= extent) {
++        clamped = extent - 1;
++    }
++    return (uint32_t)(((uint64_t)clamped << 16) / extent);
++}
++
++static inline uint64_t
++mido_scanout_blit(const struct mido_pixel_buffer *source,
++    struct mido_pixel_buffer *target, uint32_t canvas_width,
++    uint32_t canvas_height, const struct mido_blit_rect *rect)
++{
++    if (!mido_buffer_valid(source) || !mido_buffer_valid(target) ||
++        source->pixel_bytes != 4 || rect == NULL || canvas_width == 0 ||
++        canvas_height == 0 || canvas_width > 16384 || canvas_height > 16384 ||
++        rect->source_width <= 0 || rect->source_height <= 0 ||
++        rect->target_width <= 0 || rect->target_height <= 0) {
++        return 0;
++    }
++    int64_t left = rect->target_x > 0 ? rect->target_x : 0;
++    int64_t top = rect->target_y > 0 ? rect->target_y : 0;
++    int64_t right = (int64_t)rect->target_x + rect->target_width;
++    int64_t bottom = (int64_t)rect->target_y + rect->target_height;
++    if (right > canvas_width) {
++        right = canvas_width;
++    }
++    if (bottom > canvas_height) {
++        bottom = canvas_height;
++    }
++    if (left >= right || top >= bottom) {
++        return 0;
++    }
++    uint32_t first_x = (uint32_t)((left * target->width + canvas_width - 1) / canvas_width);
++    uint32_t first_y = (uint32_t)((top * target->height + canvas_height - 1) / canvas_height);
++    uint32_t last_x = (uint32_t)((right * target->width + canvas_width - 1) / canvas_width);
++    uint32_t last_y = (uint32_t)((bottom * target->height + canvas_height - 1) / canvas_height);
++    uint64_t copied = 0;
++    for (uint32_t panel_y = first_y; panel_y < last_y; panel_y++) {
++        int64_t logical_y = (uint64_t)panel_y * canvas_height / target->height;
++        int64_t source_y = rect->source_y +
++            (logical_y - rect->target_y) * rect->source_height / rect->target_height;
++        if (source_y < 0 || source_y >= source->height) {
++            continue;
++        }
++        uint8_t *target_row = target->pixels + (uint64_t)panel_y * target->row_bytes;
++        const uint8_t *source_row = source->pixels + (uint64_t)source_y * source->row_bytes;
++        for (uint32_t panel_x = first_x; panel_x < last_x; panel_x++) {
++            int64_t logical_x = (uint64_t)panel_x * canvas_width / target->width;
++            int64_t source_x = rect->source_x +
++                (logical_x - rect->target_x) * rect->source_width / rect->target_width;
++            if (source_x < 0 || source_x >= source->width) {
++                continue;
++            }
++            const uint8_t *pixel = source_row + (uint64_t)source_x * 4;
++            uint8_t *destination = target_row + (uint64_t)panel_x * target->pixel_bytes;
++            destination[0] = pixel[0];
++            destination[1] = pixel[1];
++            destination[2] = pixel[2];
++            if (target->pixel_bytes == 4) {
++                destination[3] = pixel[3];
++            }
++            copied++;
++        }
++    }
++    return copied;
++}
++
++#endif
