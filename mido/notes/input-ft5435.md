@@ -7,9 +7,36 @@ Recovery binds ft5435_ts to I2C bus 3, address 0x38. It reports chip ID
 Saved live DT identifies Home (500,2040), Menu (200,2040), Back (800,2040).
 The actual bus driver is MSM-I2C-v2-adapter, not the sailfish v1-tag path.
 
-The current XNU exposes MidoHIDTouch/MidoHIDButtons, but has no hardware
-callers of mido_hid_touch/mido_hid_key. A registered HID service alone
-therefore does not prove that physical input can reach iOS.
+The last hardware-tested kernel (0106) exposes MidoHIDTouch/MidoHIDButtons,
+but has no hardware callers. Patch 0107 now adds those callers; it is NOT
+hardware-verified. A registered HID service alone does not prove input works.
+
+## Patch 0107 implementation
+
+MidoInput runs on its own workloop, starting after ten seconds and HID
+registration. It configures the verified MSM8953 QUP3 clocks/pins, verifies
+FT5435 ID 0x54, and polls reports every 20 ms with bounded timeouts. Output
+uses nine-byte v2 tags in FIFO mode; input uses block mode, including the
+65-byte full report and tag overhead. Three failed frames release contacts;
+ten stop polling, followed by at most five identity re-probes. Home is mapped
+explicitly; Menu/Back remain unassigned. Hardware identities retain slots.
+
+Read-only SPMI observer transactions read PM8953 power/volume-down and
+PMI8950 SOC/charger status. Volume-up uses GPIO85. MidoBattery subclasses
+IOPMPowerSource and publishes only successful hardware samples, with no
+invented voltage/current/temperature. iOS power-source recognition is untested.
+No charging configuration or PMIC regulator writes are performed.
+
+Boot arguments midoinput=0, midotouch=0 and midopmic=0 disable the respective
+paths. Touch inherits warm L10/L6 supplies; cold rail initialization is NOT
+implemented. Failed identity probing is logged, not reported as working touch.
+SMP remains cpus=1; eMMC retry and repaired on-device root remain unchanged.
+
+Local checks: ARM64 Mach-O compilation succeeds for MidoInput, MidoHID and
+KernelConfigTables. Native mocked transport/state tests cover boundaries,
+partial transfers, errors, timeouts, slot reconciliation and sanitizer stress.
+Patch application against the verified 0106 tree passes. CI/hardware results
+must be recorded separately before claiming a working fix.
 
 ## Pure, host-tested helpers
 
@@ -36,7 +63,7 @@ Run from Linux/WSL:
 
     python3 -m unittest discover -s mido/tests -p test_mido_ft5435.py -v
 
-## Remaining implementation gates
+## Original implementation checklist (implemented above; hardware gates remain)
 
 1. Implement bounded QUP-v2 FIFO/block transport using MSM8953 clock offsets,
    validating HW version, FIFO size and controller state before transfers.
