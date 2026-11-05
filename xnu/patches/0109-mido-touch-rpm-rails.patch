@@ -16,7 +16,7 @@
      bool pmicRead(unsigned, uint8_t, uint8_t *, unsigned = 1);
      void keys(void);
      void battery(void);
-@@ -123,9 +125,67 @@ private:
+@@ -123,9 +125,65 @@ private:
  
  OSDefineMetaClassAndStructors(MidoInput, IOService);
  
@@ -43,8 +43,7 @@
 +    }
 +    vm_offset_t smem = ml_io_map(0x86300000, 0x100000), ipc = ml_io_map(0x0b011000, 0x1000);
 +    if (!smem || !ipc) {
-+        IOLog("MIDO RPM: SMEM/IPC mapping failed
-+");
++        IOLog("MIDO RPM: SMEM/IPC mapping failed\n");
 +        if (smem) {
 +            ml_io_unmap(smem, 0x100000);
 +        }
@@ -67,8 +66,7 @@
 +        const uint32_t kvp[9] = {MIDO_RPM_KEY_ENABLE, 4, 1, MIDO_RPM_KEY_UV, 4, rails[index].microvolt,
 +            MIDO_RPM_KEY_MA, 4, rails[index].milliamp};
 +        int result = mido_rpm_request(&rpm, MIDO_RPM_LDOA, rails[index].id, kvp, 9, 0x4d49 + index);
-+        IOLog("MIDO RPM: %s vote result=%d ack=0x%x,0x%x
-+", rails[index].name, result, rpm.ack[0], rpm.ack[1]);
++        IOLog("MIDO RPM: %s vote result=%d ack=0x%x,0x%x\n", rails[index].name, result, rpm.ack[0], rpm.ack[1]);
 +        ok = ok && result == 0;
 +    }
 +    ml_io_unmap(smem, 0x100000);
@@ -86,10 +84,11 @@
          return false;
 --- /dev/null
 +++ b/iokit/Kernel/arm/mido_rpm_smd.h
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,208 @@
 +#ifndef MIDO_RPM_SMD_H
 +#define MIDO_RPM_SMD_H
 +
++#include <stddef.h>
 +#include <stdint.h>
 +
 +/*
@@ -138,12 +137,12 @@
 +    /* proc_comm[4] + version_info[32] + heap_info = word 52 */
 +    volatile uint32_t *info = io->smem + 52 + 4 * item;
 +    if (item > MIDO_SMEM_LAST_ITEM || info[0] == 0 || info[3] != 0) {
-+        return 0;
++        return NULL;
 +    }
 +    uint32_t offset = info[1], length = info[2];
 +    if ((offset & 3) || (length & 3) || offset > io->smem_size ||
 +        length > io->smem_size - offset) {
-+        return 0;
++        return NULL;
 +    }
 +    *size = length;
 +    return io->smem + offset / 4;
@@ -159,18 +158,18 @@
 +mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
 +    const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id)
 +{
-+    if (io == 0 || io->smem == 0 || io->notify == 0 || io->delay == 0 ||
-+        kvp == 0 || kvp_words == 0 || kvp_words > 12 ||
++    if (io == NULL || io->smem == NULL || io->notify == NULL || io->delay == NULL ||
++        kvp == NULL || kvp_words == 0 || kvp_words > 12 ||
 +        io->smem_size < 4 * (52 + 4 * (MIDO_SMEM_LAST_ITEM + 1)) ||
 +        io->smem[48] != 1) {
 +        return -1;
 +    }
 +    uint32_t size = 0, port_size = 0, fifo_size = 0;
 +    volatile uint32_t *table = mido_smem_item(io, MIDO_SMEM_CHANNEL_TBL, &size);
-+    if (table == 0) {
++    if (table == NULL) {
 +        return -2;
 +    }
-+    volatile uint32_t *port = 0, *fifo = 0;
++    volatile uint32_t *port = NULL, *fifo = NULL;
 +    /* smd_channel_alloc_entry_t: name[20], cid, ctype, ref_count */
 +    for (uint32_t entry = 0; entry + 8 <= size / 4 && entry < 64 * 8; entry += 8) {
 +        if ((table[entry + 6] & 0xff) == MIDO_SMD_APPS_RPM) {
@@ -182,7 +181,7 @@
 +            break;
 +        }
 +    }
-+    if (port == 0 || port_size < 8 * MIDO_SS_WORDS || fifo == 0 ||
++    if (port == NULL || port_size < 8 * MIDO_SS_WORDS || fifo == NULL ||
 +        fifo_size < 128 || (fifo_size & 7)) {
 +        return -3;
 +    }

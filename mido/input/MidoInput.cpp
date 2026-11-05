@@ -148,8 +148,7 @@ MidoInput::touchRails(void)
     }
     vm_offset_t smem = ml_io_map(0x86300000, 0x100000), ipc = ml_io_map(0x0b011000, 0x1000);
     if (!smem || !ipc) {
-        IOLog("MIDO RPM: SMEM/IPC mapping failed
-");
+        IOLog("MIDO RPM: SMEM/IPC mapping failed\n");
         if (smem) {
             ml_io_unmap(smem, 0x100000);
         }
@@ -172,8 +171,7 @@ MidoInput::touchRails(void)
         const uint32_t kvp[9] = {MIDO_RPM_KEY_ENABLE, 4, 1, MIDO_RPM_KEY_UV, 4, rails[index].microvolt,
             MIDO_RPM_KEY_MA, 4, rails[index].milliamp};
         int result = mido_rpm_request(&rpm, MIDO_RPM_LDOA, rails[index].id, kvp, 9, 0x4d49 + index);
-        IOLog("MIDO RPM: %s vote result=%d ack=0x%x,0x%x
-", rails[index].name, result, rpm.ack[0], rpm.ack[1]);
+        IOLog("MIDO RPM: %s vote result=%d ack=0x%x,0x%x\n", rails[index].name, result, rpm.ack[0], rpm.ack[1]);
         ok = ok && result == 0;
     }
     ml_io_unmap(smem, 0x100000);

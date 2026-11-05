@@ -1,6 +1,7 @@
 #ifndef MIDO_RPM_SMD_H
 #define MIDO_RPM_SMD_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /*
@@ -49,12 +50,12 @@ mido_smem_item(struct mido_rpm_io *io, unsigned item, uint32_t *size)
     /* proc_comm[4] + version_info[32] + heap_info = word 52 */
     volatile uint32_t *info = io->smem + 52 + 4 * item;
     if (item > MIDO_SMEM_LAST_ITEM || info[0] == 0 || info[3] != 0) {
-        return 0;
+        return NULL;
     }
     uint32_t offset = info[1], length = info[2];
     if ((offset & 3) || (length & 3) || offset > io->smem_size ||
         length > io->smem_size - offset) {
-        return 0;
+        return NULL;
     }
     *size = length;
     return io->smem + offset / 4;
@@ -70,18 +71,18 @@ static inline int
 mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
     const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id)
 {
-    if (io == 0 || io->smem == 0 || io->notify == 0 || io->delay == 0 ||
-        kvp == 0 || kvp_words == 0 || kvp_words > 12 ||
+    if (io == NULL || io->smem == NULL || io->notify == NULL || io->delay == NULL ||
+        kvp == NULL || kvp_words == 0 || kvp_words > 12 ||
         io->smem_size < 4 * (52 + 4 * (MIDO_SMEM_LAST_ITEM + 1)) ||
         io->smem[48] != 1) {
         return -1;
     }
     uint32_t size = 0, port_size = 0, fifo_size = 0;
     volatile uint32_t *table = mido_smem_item(io, MIDO_SMEM_CHANNEL_TBL, &size);
-    if (table == 0) {
+    if (table == NULL) {
         return -2;
     }
-    volatile uint32_t *port = 0, *fifo = 0;
+    volatile uint32_t *port = NULL, *fifo = NULL;
     /* smd_channel_alloc_entry_t: name[20], cid, ctype, ref_count */
     for (uint32_t entry = 0; entry + 8 <= size / 4 && entry < 64 * 8; entry += 8) {
         if ((table[entry + 6] & 0xff) == MIDO_SMD_APPS_RPM) {
@@ -93,7 +94,7 @@ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
             break;
         }
     }
-    if (port == 0 || port_size < 8 * MIDO_SS_WORDS || fifo == 0 ||
+    if (port == NULL || port_size < 8 * MIDO_SS_WORDS || fifo == NULL ||
         fifo_size < 128 || (fifo_size & 7)) {
         return -3;
     }
