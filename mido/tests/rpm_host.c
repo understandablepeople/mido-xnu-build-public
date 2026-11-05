@@ -4,7 +4,7 @@
 #include <string.h>
 
 /* Fake SMEM with an RPM that opens the channel and acks one request. */
-static uint32_t smem[0x4000];
+static uint32_t smem[0x4000], window[0x2000];
 static uint32_t *port, *fifo;
 static unsigned notifies, requests;
 #define FIFO_WORDS 512 /* 2 KiB per direction */
@@ -79,6 +79,24 @@ main(void)
     assert(mido_rpm_request(&io, MIDO_RPM_LDOA, 6, kvp, 9, 3) == -2);
     info[4 * MIDO_SMEM_CHANNEL_TBL + 3] = 0;
     assert(mido_rpm_request(&io, MIDO_RPM_LDOA, 6, kvp, 13, 4) == -1);
+
+    /* Real layout seen on mido: ports/FIFOs have base_ext = RPM message RAM. */
+    memset(window, 0, sizeof(window));
+    port = window + 0x400 / 4;
+    fifo = window + 0x800 / 4;
+    info[4 * (MIDO_SMEM_SMD_BASE + 3) + 1] = 0x400;
+    info[4 * (MIDO_SMEM_SMD_BASE + 3) + 3] = 0x60000;
+    info[4 * (MIDO_SMEM_SMD_FIFO + 3) + 1] = 0x800;
+    info[4 * (MIDO_SMEM_SMD_FIFO + 3) + 3] = 0x60000;
+    io.ext = window;
+    io.ext_phys = 0x60000;
+    io.ext_size = sizeof(window);
+    requests = 0;
+    assert(mido_rpm_request(&io, MIDO_RPM_LDOA, 10, kvp, 9, 5) == 0 && requests == 1);
+    io.ext_phys = 0x70000; /* unexpected base_ext must be refused */
+    assert(mido_rpm_request(&io, MIDO_RPM_LDOA, 10, kvp, 9, 6) == -3);
+    io.ext = NULL;
+    assert(mido_rpm_request(&io, MIDO_RPM_LDOA, 10, kvp, 9, 7) == -3);
     puts("rpm_host ok");
     return 0;
 }

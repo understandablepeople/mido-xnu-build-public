@@ -8,8 +8,9 @@
  * Minimal polled RPM SMD client for MSM8953, following lk2nd 23.1
  * platform/msm_shared/{smem,smd,rpm-smd}.c: reopen the apps->RPM channel
  * (left closed by the bootloader), send one active-set request, read one ack.
- * SMEM is touched only with aligned 32-bit accesses; items outside the main
- * SMEM region (base_ext) are refused.
+ * SMEM is touched only with aligned 32-bit accesses. Items with base_ext (the
+ * SMD ports live in RPM message RAM at 0x60000) are accepted only for the one
+ * caller-mapped window io->ext; any other base_ext is refused.
  */
 #define MIDO_SMD_APPS_RPM      0x0f
 #define MIDO_SMEM_CHANNEL_TBL  13
@@ -38,6 +39,8 @@ enum {
 struct mido_rpm_io {
     volatile uint32_t *smem;
     uint32_t smem_size;
+    volatile uint32_t *ext;
+    uint32_t ext_phys, ext_size;
     void *context;
     void (*notify)(void *);
     void (*delay)(void *, unsigned);
@@ -49,16 +52,25 @@ mido_smem_item(struct mido_rpm_io *io, unsigned item, uint32_t *size)
 {
     /* proc_comm[4] + version_info[32] + heap_info = word 52 */
     volatile uint32_t *info = io->smem + 52 + 4 * item;
-    if (item > MIDO_SMEM_LAST_ITEM || info[0] == 0 || info[3] != 0) {
+    if (item > MIDO_SMEM_LAST_ITEM || info[0] == 0) {
         return NULL;
     }
+    /* base_ext != 0: item lives in the RPM message RAM window, not main SMEM. */
+    volatile uint32_t *region = io->smem;
+    uint32_t limit = io->smem_size;
+    if (info[3] != 0) {
+        if (io->ext == NULL || info[3] != io->ext_phys) {
+            return NULL;
+        }
+        region = io->ext;
+        limit = io->ext_size;
+    }
     uint32_t offset = info[1], length = info[2];
-    if ((offset & 3) || (length & 3) || offset > io->smem_size ||
-        length > io->smem_size - offset) {
+    if ((offset & 3) || (length & 3) || offset > limit || length > limit - offset) {
         return NULL;
     }
     *size = length;
-    return io->smem + offset / 4;
+    return region + offset / 4;
 }
 
 static inline uint32_t

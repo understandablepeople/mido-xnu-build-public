@@ -148,13 +148,17 @@ MidoInput::touchRails(void)
     }
     /* ponytail: ml_io_map entries are permanent (ml_io_unmap panics in vm_map_delete); mapped once, kept. */
     vm_offset_t smem = ml_io_map(0x86300000, 0x100000), ipc = ml_io_map(0x0b011000, 0x1000);
-    if (!smem || !ipc) {
+    vm_offset_t ext = ml_io_map(0x00060000, 0x20000);
+    if (!smem || !ipc || !ext) {
         IOLog("MIDO RPM: SMEM/IPC mapping failed\n");
         return false;
     }
     struct mido_rpm_io rpm = {};
     rpm.smem = (volatile uint32_t *)smem;
     rpm.smem_size = 0x100000;
+    rpm.ext = (volatile uint32_t *)ext;
+    rpm.ext_phys = 0x60000;
+    rpm.ext_size = 0x20000;
     rpm.context = (void *)ipc;
     rpm.notify = rpm_notify;
     rpm.delay = rpm_delay;
