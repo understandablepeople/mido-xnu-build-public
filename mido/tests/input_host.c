@@ -33,7 +33,7 @@ mock_read(void *context, uint32_t offset)
         if (mock->mode == 5 || (mock->mode == 6 && mock->consumed >= 16)) {
             return 0;
         }
-        return mock->consumed < mock->input_length ? 0x2300U : 0x800U;
+        return mock->consumed < mock->input_length ? (mock->mode == 8 ? 0x2020U : 0x2300U) : 0x800U;
     }
     if (offset == 0x218) {
         uint32_t word = 0;
@@ -87,7 +87,7 @@ int host_qup(unsigned mode, unsigned length, unsigned block, uint8_t *result,
     for (unsigned index = 2; index < mock.input_length; index++) {
         mock.input[index] = (uint8_t)(index - 2);
     }
-    struct mido_qup_io io = {&mock, mock_read, mock_write, mock_delay, 0, 0, 0};
+    struct mido_qup_io io = {&mock, mock_read, mock_write, mock_delay, 0, 0, 0, 0};
     int status = mido_qup_read(&io, 0x38, 0, result, length);
     memcpy(command, mock.output, sizeof(mock.output));
     *writes = mock.writes;

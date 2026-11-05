@@ -86,6 +86,11 @@ class HardwareInputTests(unittest.TestCase):
                 self.assertEqual(command[8], length)
                 self.assertEqual(consumed, length + 2)
 
+    def test_block_read_request_without_service_flag(self):
+        # 0109 phone: operational=0x2c60 (bit13 request, FIFO not empty, no bit9)
+        status, data, command, writes, delays, consumed = self.transfer(mode=8, length=14)
+        self.assertEqual((status, data, consumed), (0, bytes(range(14)), 16))
+
     def test_errors_are_bounded_and_preserve_output(self):
         for mode, expected in [(1, -2), (2, -3), (3, -7), (4, -7), (5, -6), (6, -6), (7, -6)]:
             status, data, command, writes, delays, consumed = self.transfer(mode=mode)

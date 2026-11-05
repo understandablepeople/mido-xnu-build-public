@@ -8,7 +8,7 @@ struct mido_qup_io {
     uint32_t (*read)(void *, uint32_t);
     void (*write)(void *, uint32_t, uint32_t);
     void (*delay)(void *, unsigned);
-    uint32_t last_status, last_errors, last_operational;
+    uint32_t last_status, last_errors, last_operational, last_position;
 };
 
 static inline int
@@ -49,7 +49,7 @@ mido_qup_read(struct mido_qup_io *io, uint8_t address, uint8_t reg,
     if (version == 0 || version == UINT32_MAX || (version >> 28) != 2) {
         return -2;
     }
-    io->last_status = io->last_errors = io->last_operational = 0;
+    io->last_status = io->last_errors = io->last_operational = io->last_position = 0;
     io->write(io->context, 0x0c, 1);
     if (!mido_qup_wait(io, 4, 7, 4, 2000)) {
         io->write(io->context, 0x0c, 1);
@@ -104,11 +104,13 @@ mido_qup_read(struct mido_qup_io *io, uint8_t address, uint8_t reg,
         io->last_status = status;
         io->last_errors = errors;
         io->last_operational = operational;
+        io->last_position = position;
         if ((status & 0x380003c) != 0 || (errors & 0x3c) != 0) {
             result = -7;
             break;
         }
-        if ((operational & 0x200) != 0) {
+        /* 0x200 service flag or 0x2000 block-read request: 0109 hardware showed only the latter. */
+        if ((operational & 0x2200) != 0) {
             io->write(io->context, 0x18, 0x200);
             unsigned available = length + 2 - position;
             if (available > block) {

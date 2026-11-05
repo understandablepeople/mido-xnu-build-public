@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 #define MIDO_PANEL_WIDTH 1080U
 #define MIDO_PANEL_HEIGHT 1920U
@@ -100,7 +101,31 @@ mido_scanout_blit(const struct mido_pixel_buffer *source,
             }
             uint8_t *target_row = target->pixels + (uint64_t)panel_y * target->row_bytes;
             const uint8_t *source_row = source->pixels + (uint64_t)source_y * source->row_bytes;
-            for (uint32_t column = 0; column < count; column++) {
+            uint32_t column = 0;
+            /* Panel memory is write-combined: four BGR24 pixels leave as three aligned words. */
+            if (target->pixel_bytes == 3 && ((uint64_t)(uintptr_t)target_row & 3) == 0 &&
+                (target->row_bytes & 3) == 0) {
+                for (; column + 4 <= count && ((block_x + column) & 3) == 0; column += 4) {
+                    if ((offsets[column] | offsets[column + 1] | offsets[column + 2] |
+                        offsets[column + 3]) == UINT32_MAX) {
+                        break;
+                    }
+                    uint32_t p0, p1, p2, p3;
+                    memcpy(&p0, source_row + offsets[column], 4);
+                    memcpy(&p1, source_row + offsets[column + 1], 4);
+                    memcpy(&p2, source_row + offsets[column + 2], 4);
+                    memcpy(&p3, source_row + offsets[column + 3], 4);
+                    uint32_t w0 = (p0 & 0xffffffU) | (p1 << 24);
+                    uint32_t w1 = ((p1 >> 8) & 0xffffU) | (p2 << 16);
+                    uint32_t w2 = ((p2 >> 16) & 0xffU) | ((p3 & 0xffffffU) << 8);
+                    uint8_t *destination = target_row + (uint64_t)(block_x + column) * 3;
+                    memcpy(destination, &w0, 4);
+                    memcpy(destination + 4, &w1, 4);
+                    memcpy(destination + 8, &w2, 4);
+                    copied += 4;
+                }
+            }
+            for (; column < count; column++) {
                 if (offsets[column] == UINT32_MAX) {
                     continue;
                 }

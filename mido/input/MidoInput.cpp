@@ -21,6 +21,15 @@ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
 extern "C" void mido_hid_key(int, int);
 extern "C" void mido_hid_touch(int, int, int, int);
 extern "C" int mido_hid_ready(void);
+extern "C" void mido_display_power(int);
+
+/* Framebuffer RequestPowerChange: -1 none, 0 off, 1 on; applied from the poll thread. */
+static volatile int gDisplayRequest = -1;
+void
+mido_display_power(int on)
+{
+    __atomic_store_n(&gDisplayRequest, on ? 1 : 0, __ATOMIC_RELEASE);
+}
 
 static uint32_t
 input_read(vm_offset_t base, uint32_t offset)
@@ -108,12 +117,19 @@ private:
     unsigned fLastPower = 8;
     uint64_t fNextBattery = 0, fLastPoll = 0;
     unsigned fSlowPolls = 0;
+    vm_offset_t fWledRead = 0, fWledWrite = 0;
+    uint8_t fWledSaved[4] = {};
+    bool fDisplayOn = true;
     bool fInitialized = false, fTouch = false, fPmic = false;
     bool fRunning = false, fTimerAdded = false;
     void initialize(void);
     bool touchSetup(void);
     bool pmicSetup(void);
     bool touchRails(void);
+    bool wledSetup(void);
+    bool wledRead(uint8_t, uint8_t *);
+    bool wledWrite(uint8_t, uint8_t);
+    void backlight(bool);
     bool pmicRead(unsigned, uint8_t, uint8_t *, unsigned = 1);
     void keys(void);
     void battery(void);
@@ -248,8 +264,8 @@ MidoInput::touchSetup(void)
     int error = mido_qup_read(&fIo, 0x38, 0xa3, &identity, 1);
     IOLog("MIDO INPUT: QUP version=0x%x chip=0x%x read=%d\n",
         input_read(fQup, 0x30), identity, error);
-    IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x\n",
-        fIo.last_status, fIo.last_errors, fIo.last_operational);
+    IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x pos=%u\n",
+        fIo.last_status, fIo.last_errors, fIo.last_operational, fIo.last_position);
     if (error || identity != 0x54) {
         IOLog("MIDO INPUT: FT5435 not verified; inherited L10/L6 supplies required\n");
         return false;
@@ -313,6 +329,95 @@ MidoInput::pmicRead(unsigned index, uint8_t address, uint8_t *data, unsigned len
         IODelay(1);
     }
     return false;
+}
+
+/*
+ * PMI8950 SID3 WLED sink (peripheral 0xd9, PPID 0x3d9): per-string brightness
+ * is 12 bit at sink+0x57/0x58 (+0x10 per string), applied by toggling sync at
+ * sink+0x47 (leds-qpnp-wled.c). Writes go through the arbiter write channel.
+ */
+bool
+MidoInput::wledSetup(void)
+{
+    if (!fPmicCore || fVersion < 0x20010000 || fVersion >= 0x50000000) {
+        return false;
+    }
+    for (unsigned offset = 0x800; offset < 0x1000; offset += 4) {
+        uint32_t entry = input_read(fPmicCore, offset);
+        if (entry != 0 && ((entry >> 8) & 0xfff) == 0x3d9) {
+            unsigned channel = 0x8000 * ((offset - 0x800) / 4);
+            if (channel < 0x800000) {
+                fWledRead = ml_io_map(0x02c00000 + channel, 0x1000);
+                fWledWrite = ml_io_map(0x02400000 + channel, 0x1000);
+            }
+            break;
+        }
+    }
+    IOLog("MIDO WLED: read=%s write=%s\n", fWledRead ? "mapped" : "absent", fWledWrite ? "mapped" : "absent");
+    return fWledRead && fWledWrite;
+}
+
+bool
+MidoInput::wledRead(uint8_t reg, uint8_t *value)
+{
+    input_write(fWledRead, 0, (1U << 27) | ((uint32_t)reg << 4));
+    for (unsigned attempt = 0; attempt < 1000; attempt++) {
+        uint32_t status = input_read(fWledRead, 8);
+        if (status & 1) {
+            if (status & 0xe) {
+                return false;
+            }
+            *value = (uint8_t)input_read(fWledRead, 0x18);
+            return true;
+        }
+        IODelay(1);
+    }
+    return false;
+}
+
+bool
+MidoInput::wledWrite(uint8_t reg, uint8_t value)
+{
+    input_write(fWledWrite, 0x10, value);
+    input_write(fWledWrite, 0, (uint32_t)reg << 4);
+    for (unsigned attempt = 0; attempt < 1000; attempt++) {
+        uint32_t status = input_read(fWledWrite, 8);
+        if (status & 1) {
+            return !(status & 0xe);
+        }
+        IODelay(1);
+    }
+    return false;
+}
+
+void
+MidoInput::backlight(bool on)
+{
+    if (!fWledRead || !fWledWrite || on == fDisplayOn) {
+        return;
+    }
+    static const uint8_t regs[4] = {0x57, 0x58, 0x67, 0x68};
+    bool ok = true;
+    if (!on) {
+        for (unsigned index = 0; index < 4 && ok; index++) {
+            ok = wledRead(regs[index], &fWledSaved[index]);
+        }
+        if (ok && !(fWledSaved[0] | (fWledSaved[1] & 0xf) | fWledSaved[2] | (fWledSaved[3] & 0xf))) {
+            fWledSaved[1] = fWledSaved[3] = 0x08;
+        }
+        IOLog("MIDO WLED: off, saved level %02x%02x/%02x%02x ok=%d\n", fWledSaved[1], fWledSaved[0],
+            fWledSaved[3], fWledSaved[2], ok);
+    }
+    for (unsigned index = 0; index < 4 && ok; index++) {
+        ok = wledWrite(regs[index], on ? fWledSaved[index] : 0);
+    }
+    ok = ok && wledWrite(0x47, 0x0f);
+    IODelay(1000);
+    ok = ok && wledWrite(0x47, 0);
+    if (ok) {
+        fDisplayOn = on;
+    }
+    IOLog("MIDO WLED: %s ok=%d\n", on ? "on" : "off", ok);
 }
 
 void
@@ -414,6 +519,9 @@ MidoInput::initialize(void)
     PE_parse_boot_argn("midopmic", &enabled, sizeof(enabled));
     if (enabled) {
         fPmic = pmicSetup();
+        if (fPmic) {
+            wledSetup();
+        }
     }
     fVolume = ml_io_map(0x01055000, 0x1000);
     if (fVolume) {
@@ -446,6 +554,10 @@ MidoInput::poll(void)
     if (!fInitialized) {
         initialize();
     }
+    int request = __atomic_exchange_n(&gDisplayRequest, -1, __ATOMIC_ACQ_REL);
+    if (request >= 0) {
+        backlight(request != 0);
+    }
     keys();
     if (fTouch) {
         uint8_t report[MIDO_FT_REPORT_BYTES];
@@ -473,8 +585,8 @@ MidoInput::poll(void)
             fFailures = 0;
         }
         IOLog("MIDO INPUT: bounded re-probe %u ID=0x%x read=%d\n", fProbeCount, identity, error);
-        IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x\n",
-            fIo.last_status, fIo.last_errors, fIo.last_operational);
+        IOLog("MIDO INPUT: QUP status=0x%x errors=0x%x operational=0x%x pos=%u\n",
+            fIo.last_status, fIo.last_errors, fIo.last_operational, fIo.last_position);
     }
     fTicks++;
     if (!fNextBattery || now >= fNextBattery) {
