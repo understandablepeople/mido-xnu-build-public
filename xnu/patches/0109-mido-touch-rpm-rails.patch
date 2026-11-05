@@ -16,7 +16,7 @@
      bool pmicRead(unsigned, uint8_t, uint8_t *, unsigned = 1);
      void keys(void);
      void battery(void);
-@@ -123,9 +125,58 @@ private:
+@@ -123,9 +125,75 @@ private:
  
  OSDefineMetaClassAndStructors(MidoInput, IOService);
  
@@ -62,6 +62,23 @@
 +            MIDO_RPM_KEY_MA, 4, rails[index].milliamp};
 +        int result = mido_rpm_request(&rpm, MIDO_RPM_LDOA, rails[index].id, kvp, 9, 0x4d49 + index);
 +        IOLog("MIDO RPM: %s vote result=%d ack=0x%x,0x%x\n", rails[index].name, result, rpm.ack[0], rpm.ack[1]);
++        if (result == -3 && index == 0) {
++            uint32_t size = 0;
++            volatile uint32_t *table = mido_smem_item(&rpm, MIDO_SMEM_CHANNEL_TBL, &size);
++            volatile uint32_t *info = rpm.smem + 52 + 4 * MIDO_SMEM_CHANNEL_TBL;
++            IOLog("MIDO RPM: smem ver=%u heap=%u item13 alloc=%u off=0x%x size=0x%x ext=0x%x\n",
++                rpm.smem[48], rpm.smem[49], info[0], info[1], info[2], info[3]);
++            for (unsigned entry = 0; table && entry < 64 && entry < size / 32; entry++) {
++                uint32_t cid = table[entry * 8 + 5], ctype = table[entry * 8 + 6];
++                if (table[entry * 8] || ctype) {
++                    volatile uint32_t *item = rpm.smem + 52 + 4 * (MIDO_SMEM_SMD_BASE + cid);
++                    volatile uint32_t *fifo = rpm.smem + 52 + 4 * (MIDO_SMEM_SMD_FIFO + cid);
++                    IOLog("MIDO RPM: ch%u %.8s cid=%u type=0x%x port(a=%u o=0x%x s=0x%x e=0x%x) fifo(a=%u s=0x%x e=0x%x)\n",
++                        entry, (const char *)(table + entry * 8), cid, ctype, item[0], item[1], item[2], item[3],
++                        fifo[0], fifo[2], fifo[3]);
++                }
++            }
++        }
 +        ok = ok && result == 0;
 +    }
 +    IOSleep(50);
