@@ -118,6 +118,8 @@ private:
     uint64_t fNextBattery = 0, fLastPoll = 0;
     unsigned fSlowPolls = 0;
     vm_offset_t fWledRead = 0, fWledWrite = 0;
+    vm_offset_t fWledControlRead = 0, fWledControlWrite = 0;
+    unsigned fInvalidReports = 0;
     uint8_t fWledSaved[4] = {};
     bool fDisplayOn = true;
     bool fInitialized = false, fTouch = false, fPmic = false;
@@ -127,8 +129,8 @@ private:
     bool pmicSetup(void);
     bool touchRails(void);
     bool wledSetup(void);
-    bool wledRead(uint8_t, uint8_t *);
-    bool wledWrite(uint8_t, uint8_t);
+    bool wledRead(uint8_t, uint8_t *, bool = false);
+    bool wledWrite(uint8_t, uint8_t, bool = false);
     void backlight(bool);
     bool pmicRead(unsigned, uint8_t, uint8_t *, unsigned = 1);
     void keys(void);
@@ -354,20 +356,37 @@ MidoInput::wledSetup(void)
         }
     }
     IOLog("MIDO WLED: read=%s write=%s\n", fWledRead ? "mapped" : "absent", fWledWrite ? "mapped" : "absent");
-    return fWledRead && fWledWrite;
+    for (unsigned offset = 0x800; offset < 0x1000; offset += 4) {
+        uint32_t entry = input_read(fPmicCore, offset);
+        if (entry != 0 && ((entry >> 8) & 0xfff) == 0x3d8) {
+            unsigned channel = 0x8000 * ((offset - 0x800) / 4);
+            if (channel < 0x800000) {
+                fWledControlRead = ml_io_map(0x02c00000 + channel, 0x1000);
+                fWledControlWrite = ml_io_map(0x02400000 + channel, 0x1000);
+            }
+            break;
+        }
+    }
+    IOLog("MIDO WLED: control PPID=0x3d8 read=%s write=%s\n",
+        fWledControlRead ? "mapped" : "absent", fWledControlWrite ? "mapped" : "absent");
+    return fWledRead && fWledWrite && fWledControlRead && fWledControlWrite;
 }
 
 bool
-MidoInput::wledRead(uint8_t reg, uint8_t *value)
+MidoInput::wledRead(uint8_t reg, uint8_t *value, bool control)
 {
-    input_write(fWledRead, 0, (1U << 27) | ((uint32_t)reg << 4));
+    vm_offset_t channel = control ? fWledControlRead : fWledRead;
+    if (!channel || !value) {
+        return false;
+    }
+    input_write(channel, 0, (1U << 27) | ((uint32_t)reg << 4));
     for (unsigned attempt = 0; attempt < 1000; attempt++) {
-        uint32_t status = input_read(fWledRead, 8);
+        uint32_t status = input_read(channel, 8);
         if (status & 1) {
             if (status & 0xe) {
                 return false;
             }
-            *value = (uint8_t)input_read(fWledRead, 0x18);
+            *value = (uint8_t)input_read(channel, 0x18);
             return true;
         }
         IODelay(1);
@@ -376,12 +395,16 @@ MidoInput::wledRead(uint8_t reg, uint8_t *value)
 }
 
 bool
-MidoInput::wledWrite(uint8_t reg, uint8_t value)
+MidoInput::wledWrite(uint8_t reg, uint8_t value, bool control)
 {
-    input_write(fWledWrite, 0x10, value);
-    input_write(fWledWrite, 0, (uint32_t)reg << 4);
+    vm_offset_t channel = control ? fWledControlWrite : fWledWrite;
+    if (!channel) {
+        return false;
+    }
+    input_write(channel, 0x10, value);
+    input_write(channel, 0, (uint32_t)reg << 4);
     for (unsigned attempt = 0; attempt < 1000; attempt++) {
-        uint32_t status = input_read(fWledWrite, 8);
+        uint32_t status = input_read(channel, 8);
         if (status & 1) {
             return !(status & 0xe);
         }
@@ -414,6 +437,14 @@ MidoInput::backlight(bool on)
     ok = ok && wledWrite(0x47, 0x0f);
     IODelay(1000);
     ok = ok && wledWrite(0x47, 0);
+    uint8_t control = 0, verified = 0;
+    ok = ok && wledRead(0x46, &control, true);
+    if (ok) {
+        uint8_t requested = on ? (control | 0x80) : (control & ~0x80);
+        ok = wledWrite(0x46, requested, true) &&
+            wledRead(0x46, &verified, true) && verified == requested;
+    }
+    IOLog("MIDO WLED: module enable readback=0x%x requested=%d ok=%d\n", verified, on, ok);
     if (ok) {
         fDisplayOn = on;
     }
@@ -567,6 +598,14 @@ MidoInput::poll(void)
             fFailures = 0;
             mido_input_frame(&fState, &fSink, &frame);
         } else {
+            if (!error && fInvalidReports++ < 12) {
+                IOLog("MIDO INPUT: rejected report %u status=0x%x op=0x%x pos=%u\n",
+                    fInvalidReports, fIo.last_status, fIo.last_operational, fIo.last_position);
+                for (unsigned offset = 0; offset < sizeof(report); offset += 3) {
+                    IOLog("MIDO INPUT: raw[%u]=%02x %02x %02x\n",
+                        offset, report[offset], report[offset + 1], report[offset + 2]);
+                }
+            }
             if (++fFailures == 3) {
                 mido_input_release(&fState, &fSink);
                 IOLog("MIDO INPUT: report failed read=%d; contacts released\n", error);
