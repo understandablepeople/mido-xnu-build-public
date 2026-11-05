@@ -146,15 +146,10 @@ MidoInput::touchRails(void)
     if (!enabled) {
         return true;
     }
+    /* ponytail: ml_io_map entries are permanent (ml_io_unmap panics in vm_map_delete); mapped once, kept. */
     vm_offset_t smem = ml_io_map(0x86300000, 0x100000), ipc = ml_io_map(0x0b011000, 0x1000);
     if (!smem || !ipc) {
         IOLog("MIDO RPM: SMEM/IPC mapping failed\n");
-        if (smem) {
-            ml_io_unmap(smem, 0x100000);
-        }
-        if (ipc) {
-            ml_io_unmap(ipc, 0x1000);
-        }
         return false;
     }
     struct mido_rpm_io rpm = {};
@@ -174,8 +169,6 @@ MidoInput::touchRails(void)
         IOLog("MIDO RPM: %s vote result=%d ack=0x%x,0x%x\n", rails[index].name, result, rpm.ack[0], rpm.ack[1]);
         ok = ok && result == 0;
     }
-    ml_io_unmap(smem, 0x100000);
-    ml_io_unmap(ipc, 0x1000);
     IOSleep(50);
     return ok;
 }
