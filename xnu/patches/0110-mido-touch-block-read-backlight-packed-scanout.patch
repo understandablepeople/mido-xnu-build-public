@@ -271,14 +271,13 @@
  
  bool
  AppleCLCD::start(IOService *provider)
-@@ -460,6 +462,13 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+@@ -460,6 +462,12 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  			    args->scalarInput[0] ? "on" : "off");
  		}
  		break;
 +	case kMidoFBRequestPowerChange:
 +		if (args->scalarInputCount >= 1) {
-+			IOLog("MIDO FB: RequestPowerChange %llu
-+", args->scalarInput[0]);
++			IOLog("MIDO FB: RequestPowerChange %llu\n", args->scalarInput[0]);
 +			mido_display_power(args->scalarInput[0] != 0);
 +		}
 +		break;
