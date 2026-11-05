@@ -47,6 +47,19 @@ class HardwareInputTests(unittest.TestCase):
         cls.native.host_state_reset.argtypes = [ctypes.POINTER(Mock)]
         cls.native.host_frame.argtypes = [ctypes.POINTER(Mock), ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
 
+    def test_rpm_client_host_sanitizers(self):
+        compiler = shutil.which('cc') or shutil.which('gcc') or shutil.which('clang')
+        binary = Path(self.temporary.name) / 'rpm_host'
+        subprocess.run([compiler, '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
+                        '-I', str(self.root / 'input'), str(self.root / 'tests/rpm_host.c'), '-o', str(binary)], check=True)
+        self.assertIn('rpm_host ok', subprocess.run([str(binary)], check=True, capture_output=True, text=True).stdout)
+
+    def test_patch_embeds_rpm_header(self):
+        patch = (self.root.parent / 'xnu/patches/0109-mido-touch-rpm-rails.patch').read_text()
+        section = patch.split('+++ b/iokit/Kernel/arm/mido_rpm_smd.h' + chr(10), 1)[1].split(chr(10), 1)[1]
+        text = chr(10).join(line[1:] for line in section.splitlines()) + chr(10)
+        self.assertEqual(text, (self.root / 'input/mido_rpm_smd.h').read_text())
+
     def test_patch_embeds_exact_tested_sources(self):
         for name in ('MidoInput.cpp', 'mido_ft5435.h', 'mido_input_state.h', 'mido_qup_v2.h'):
             embedded = kernel_source(self.root.parent, name, "0107-mido-polled-input-battery.patch")

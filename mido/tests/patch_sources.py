@@ -14,7 +14,9 @@ def kernel_source(root, name, base):
         target = Path(directory) / relative
         target.parent.mkdir(parents=True)
         target.write_text(text)
-        subprocess.run(["git", "apply", "--include=" + relative,
-                        str(root / "xnu/patches/0108-mido-scanout-cost-and-input-diagnostics.patch")],
-                       cwd=directory, check=True, capture_output=True)
+        for later in ("0108-mido-scanout-cost-and-input-diagnostics.patch",
+                      "0109-mido-touch-rpm-rails.patch"):
+            subprocess.run(["git", "apply", "--include=" + relative,
+                            str(root / "xnu/patches" / later)],
+                           cwd=directory, check=True, capture_output=True)
         return target.read_text()

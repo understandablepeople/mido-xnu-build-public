@@ -13,6 +13,7 @@
 #include <machine/machine_routines.h>
 #include <kern/clock.h>
 #include "mido_qup_v2.h"
+#include "mido_rpm_smd.h"
 #include "mido_input_state.h"
 
 extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
@@ -112,6 +113,7 @@ private:
     void initialize(void);
     bool touchSetup(void);
     bool pmicSetup(void);
+    bool touchRails(void);
     bool pmicRead(unsigned, uint8_t, uint8_t *, unsigned = 1);
     void keys(void);
     void battery(void);
@@ -123,9 +125,67 @@ private:
 
 OSDefineMetaClassAndStructors(MidoInput, IOService);
 
+static void
+rpm_notify(void *context)
+{
+    input_write((vm_offset_t)context, 8, 1);
+}
+
+static void
+rpm_delay(void *, unsigned microseconds)
+{
+    IODelay(microseconds);
+}
+
+/* Linux sets these active-set votes via rpm-smd; lk2nd closes its channel before boot. */
+bool
+MidoInput::touchRails(void)
+{
+    unsigned enabled = 1;
+    PE_parse_boot_argn("midorails", &enabled, sizeof(enabled));
+    if (!enabled) {
+        return true;
+    }
+    vm_offset_t smem = ml_io_map(0x86300000, 0x100000), ipc = ml_io_map(0x0b011000, 0x1000);
+    if (!smem || !ipc) {
+        IOLog("MIDO RPM: SMEM/IPC mapping failed
+");
+        if (smem) {
+            ml_io_unmap(smem, 0x100000);
+        }
+        if (ipc) {
+            ml_io_unmap(ipc, 0x1000);
+        }
+        return false;
+    }
+    struct mido_rpm_io rpm = {};
+    rpm.smem = (volatile uint32_t *)smem;
+    rpm.smem_size = 0x100000;
+    rpm.context = (void *)ipc;
+    rpm.notify = rpm_notify;
+    rpm.delay = rpm_delay;
+    static const struct { unsigned id, microvolt, milliamp; const char *name; } rails[2] = {
+        {6, 1800000, 100, "L6 1.8V"}, {10, 2850000, 100, "L10 2.85V"},
+    };
+    bool ok = true;
+    for (unsigned index = 0; index < 2; index++) {
+        const uint32_t kvp[9] = {MIDO_RPM_KEY_ENABLE, 4, 1, MIDO_RPM_KEY_UV, 4, rails[index].microvolt,
+            MIDO_RPM_KEY_MA, 4, rails[index].milliamp};
+        int result = mido_rpm_request(&rpm, MIDO_RPM_LDOA, rails[index].id, kvp, 9, 0x4d49 + index);
+        IOLog("MIDO RPM: %s vote result=%d ack=0x%x,0x%x
+", rails[index].name, result, rpm.ack[0], rpm.ack[1]);
+        ok = ok && result == 0;
+    }
+    ml_io_unmap(smem, 0x100000);
+    ml_io_unmap(ipc, 0x1000);
+    IOSleep(50);
+    return ok;
+}
+
 bool
 MidoInput::touchSetup(void)
 {
+    touchRails();
     fClock = ml_io_map(0x01800000, 0x46000);
     if (!fClock) {
         return false;
