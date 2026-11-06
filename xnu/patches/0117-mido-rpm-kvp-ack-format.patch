@@ -1,0 +1,27 @@
+--- a/iokit/Kernel/arm/mido_rpm_smd.h
++++ b/iokit/Kernel/arm/mido_rpm_smd.h
+@@ -80,6 +80,14 @@
+ }
+ 
+ static inline int
++mido_rpm_ack_valid(const uint32_t *response, unsigned words, uint32_t msg_id)
++{
++    return response != NULL && words == 5 &&
++        response[0] == MIDO_RPM_REQ_MAGIC && response[1] == 12 &&
++        response[2] == 0x2367736dU && response[3] == 4 && response[4] == msg_id;
++}
++
++static inline int
+ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
+     const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id)
+ {
+@@ -214,8 +222,7 @@
+     io->ack[0] = response[5];
+     io->ack[1] = response[6];
+     /* Success ack carries only the msg_id pair (lk2nd ACK_MSG_LENGTH). */
+-    return length == 12 && response[5] == MIDO_RPM_REQ_MAGIC &&
+-        response[6] == 12 && response[7] == msg_id ? 0 : -9;
++    return mido_rpm_ack_valid(response + 5, length / 4, msg_id) ? 0 : -9;
+ }
+ 
+ #endif

@@ -27,11 +27,11 @@ rpm_side(void *context)
         assert(tx[5] == MIDO_RPM_REQ_MAGIC);
         assert(tx[9] == MIDO_RPM_LDOA);
         requests++;
-        uint32_t ack[8] = {12, 0, 0, 0, 0, MIDO_RPM_REQ_MAGIC, 12, tx[7]};
+        uint32_t ack[10] = {20, 0, 0, 0, 0, MIDO_RPM_REQ_MAGIC, 12,
+            0x2367736dU, 4, tx[7]};
         if (wrong_message) {
-            ack[7] ^= 1U;
+            ack[9] ^= 1U;
         }
-        /* 5-word pkt header + 3-word payload; reader needs 20 + length */
         memcpy(rx, ack, sizeof(ack));
         remote[MIDO_SS_WIDX] = sizeof(ack);
         local[MIDO_SS_WRITTEN] = 0;
@@ -48,6 +48,18 @@ no_delay(void *context, unsigned microseconds)
 int
 main(void)
 {
+    uint32_t valid_ack[5] = {MIDO_RPM_REQ_MAGIC, 12, 0x2367736dU, 4, 0x475001};
+    assert(mido_rpm_ack_valid(valid_ack, 5, 0x475001));
+    assert(!mido_rpm_ack_valid(NULL, 5, 0x475001));
+    for (unsigned count = 0; count < 5; count++) {
+        assert(!mido_rpm_ack_valid(valid_ack, count, 0x475001));
+    }
+    assert(!mido_rpm_ack_valid(valid_ack, 6, 0x475001));
+    for (unsigned field = 0; field < 5; field++) {
+        valid_ack[field] ^= 1U;
+        assert(!mido_rpm_ack_valid(valid_ack, 5, 0x475001));
+        valid_ack[field] ^= 1U;
+    }
     uint32_t words = sizeof(smem) / 4;
     smem[48] = 1;
     uint32_t *info = smem + 52;
