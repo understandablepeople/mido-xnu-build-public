@@ -1,15 +1,19 @@
 # GPU/Wi-Fi investigation after stable 0112 touch (2026-11-06)
 
-## Active: 0113 source prepared, full CI and hardware test pending
+## Active: 0113 CI passed, RAM boot accepted, physical result pending
 
 See gpu-power-0113.md. Added tested mido fuse/corner voltage planning and
 an opt-in, read-only12-register GCC/GFX-LDO audit hooked to platform start.
 No GPU/SMMU access or power writes, even if coarse status has no blockers.
 Default midogpu=0 touches no hardware. No acceleration or Wi-Fi enabled.
 Native45 tests OK (NDK skipped), ASan/UBSan PASS, affected ARM64 object
-compile PASS; full CI/link and device boot not done. Stable0112 untouched.
-User explicitly authorized source commit/push for CI on2026-11-06.
-Full CI and hardware boot still pending; device remains in recovery.
+compile PASS. Authorized source commit77e8b54 published; CI42172953662
+PASS8m48s. Packaged separate candidate c5121993...c811e46, preserved exact
+0112 boot inputs except added midogpu=1; stable0112 unchanged.
+Phone was actually in stock fastboot after CI. Verified product mido,
+RAM-booted known lk2nd, verified lk2nd-msm8953, RAM-booted0113: both
+status0 Booting OKAY. No adb reboot or flash. Need user screen/touch check
+and return TWRP for a fresh persisted GPU audit log; no runtime values yet.
 
 ## Read-only preflight completed, not an accelerated build
 

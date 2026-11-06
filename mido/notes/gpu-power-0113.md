@@ -1,6 +1,7 @@
 # 0113: mido GPU power planning and opt-in state audit
 
-Status: source and local tests ready; no full CI build or phone boot yet.
+Status: full CI PASS; lk2nd and0113 RAM boot accepted by fastboot.
+Physical iOS/UI success and the runtime GPU audit log are not yet verified.
 This is the first board-specific GPU bring-up stage, NOT acceleration.
 The stable 0112 image is unchanged.
 
@@ -85,16 +86,36 @@ GCC base, not sailfish's MMCC or PMI8994 regulator settings.
 
 ## Next gate
 
-User explicitly authorized the source commit/push on2026-11-06 for the
-existing GitHub Actions kernel workflow. Full CI and boot are still pending.
-Do not stage unrelated shim/build.sh, NOTES.md, local repair tools, logs,
-research, device dumps or firmware. No new branch is required.
-Commit only reviewed source/tests/docs/0113, push to
-pub/mido-port, require successful full CI, package a separate candidate with
-cpus=8 and midogpu=1 while preserving0112 ADT/DTB/shim/root arguments, then
-verify hashes and unsupported-instruction scan before any temporary boot.
+User explicitly authorized source commit/push on2026-11-06. Published
+77e8b54d4853fd10e15e6e7bbfde58a2c9d7d852; CI42172953662 PASS, build8m48s.
+Kernel xnu/out-0113/kernel.development.mido SHA256:
+5f745ca87a04fdf5c3655b41a76cf3b836bda4d68b1e091c01d450b5aaa22024.
+Image out/gpu-0113-8cpu/package/mido-xnu-shim.img SHA256:
+c512199396bf5ea3fbb0bb64b29580ac1782268259fa267dfc19303a0c811e46.
+Preserved exact0112 shim/DTB/ADT/memory/root/outer cmdline and cpus=8;
+sole payload cmdline addition is midogpu=1. Validation is recorded privately
+in logs/gpu-0113-validation.json. The full kernel scanner found one raw hit
+at0xb31bb4, verified against the entire known SHA256 K256 constant table;
+zero actual unsupported instruction candidates remain.
 
-Only then collect the runtime clock/domain snapshot. A powered-off snapshot
+After build, recovery was no longer attached: exactly one fastboot device,
+product mido, was observed. No adb reboot command was sent. Verified known
+lk2nd SHA2170c90c...1353cfa and candidate digest, RAM-booted lk2nd, verified
+product lk2nd-msm8953, then RAM-booted0113. Both fastboot commands returned
+status0 Sending/Booting OKAY. No flash or raw partition-rewrite command,
+and no root replacement. Normal iOS/persistent-console writes may occur.
+Record: logs/gpu-0113-8cpu-temp-boot-20261106.json (private, not published).
+This is loader acceptance only, not proof the kernel reached iOS.
+
+User must now check whether the usual screen/touch still work and return
+to TWRP. Pull a fresh persisted log and require MIDO GPU audit lines,
+their final no-writes marker and continued CPU/input/root progress. If no
+audit lines, do not assume an all-zero GPU state or successful execution.
+No runtime register values are known yet; do not choose rail writes blindly.
+Keep unrelated shim/build.sh, NOTES.md, repair tools, logs, research,
+firmware/calibration and device dumps out of commits.
+
+The runtime clock/domain snapshot remains the next evidence gate. A powered-off snapshot
 is useful evidence, not a failed acceleration test. Actual regulator/RPM/
 mem-acc and clock sequencing comes next, followed by GPU identity, reserved
 ZAP memory/SCM PAS13, isolated SMMU and CP execution. Port suitable A5xx
