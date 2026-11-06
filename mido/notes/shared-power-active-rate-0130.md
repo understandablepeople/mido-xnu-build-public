@@ -59,3 +59,47 @@ Remaining: bus/QoS/IOMMU contract and A506 CP/BO/fences; Pronto IRIS/SCM
 crypto clocks/PAS6 authenticated firmware startup, SMD and DXE, Apple80211
 operations and userspace rendering integration. This is a physical-power
 candidate, NOT a completed GPU/WLAN driver or guaranteed first-boot success.
+
+## Additional Android path traced while CI runs
+
+Own live DT /soc/arm,smmu-kgsl@1c40000 uses the string GPU for
+qcom,tz-device-id, static context banks, halt and skip-init. Its vdd-supply
+resolves to the CX GDSC at185904c, not the GX domain or the GFX LDO.
+Pinned arm-smmu.c register_regulator_notifier installs a CX regulator hook:
+on REGULATOR_EVENT_ENABLE it enables its clocks, calls
+arm_smmu_restore_sec_cfg(smmu,0), then qsmmuv2_resume. Hardware probe also
+calls restore before its first SMMU ID read. The own SMMU clocks are the
+already known GPU AHB and BIMC_GFX branches.
+
+msm_tz_smmu.c/h maps the GPU string to TZ_DEVICE_GPU=18. scm.c
+scm_restore_sec_cfg uses MP service0xC, command2, two value arguments
+(device18,context0). This ID is NOT the GPU firmware PAS13.
+These files were downloaded at the same pinned Android commit for reading.
+The current XNU CX path has no equivalent notifier/secure restore sequence.
+This is another confirmed missing source operation, NOT proof that it alone
+caused the photographed GPU external abort. No restore SMC, SMMU global
+register write, blanket bypass or raw GPU probe was added to0130. Trace
+clock/notifier ordering and existing secure context handoff before enabling
+this operation; skip-init is not permission to replace the global SMMU state
+with the A530 donor layout.
+
+## Full build and temporary boot result
+
+CI42287667388 SUCCESS for source960e7aaf8f6b93008ffd4bde7c213ad0215ea0b2.
+The full kernel compiled and linked. Kernel SHA256:
+93ae6fe227eec0908a06291b107b380d358dfb612373660a01c37a065e1e2e77.
+Candidate out/shared-power-rate-0130-8cpu/package/mido-xnu-shim.img SHA256:
+081a3f9b1ab46cfb63ba0f5c2bb74ce268bf98d0dd33cc9a62fe78fcdfb54e62.
+Artifact checksum and baseline shim/DTB/ADT/memory/root preservation passed.
+2322432 instruction words scanned: one complete SHA256 K256 data table hit,
+zero actual unsupported Cortex-A53 instructions. Packaged memory plan passed.
+
+The existing safe0127 command line gained only midowifipower=1 and
+midogpurate=1; eight CPUs and UI fixes remain, raw GPU status stays off.
+Verified mido recovery, stock product mido, known lk2nd loader hash, then
+product lk2nd-msm8953. Both fastboot boot commands returned OKAY/status0.
+No partitions were flashed and no additional rootfs writes were issued.
+This proves loader acceptance, NOT a booted UI, successful new RPM/rate
+requests, GPU acceleration or networking. Await physical UI check and one
+fresh recovery capture. The safe0127 image remains available unchanged.
+Private validation and boot reports use prefix shared-power-rate-0130.

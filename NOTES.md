@@ -1,5 +1,29 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0130 CI PASS and verified lk2nd RAM boot accepted
+
+Source960e7aaf8f6b93008ffd4bde7c213ad0215ea0b2; CI42287667388 SUCCESS,
+fullkernelbuild/linkPASS (notjustlocalobjects). KernelSHA256
+93ae6fe227eec0908a06291b107b380d358dfb612373660a01c37a065e1e2e77.
+Imageout/shared-power-rate-0130-8cpu/package/mido-xnu-shim.img SHA256
+081a3f9b1ab46cfb63ba0f5c2bb74ce268bf98d0dd33cc9a62fe78fcdfb54e62.
+Artifactchecksum,baselineShim/DTB/ADT/memory/root,8CPU/CCflagsPASS.
+2322432instructionwords scanned;onecompleteK256datatablehit,0actual
+unsupportedA53instructions. PackagedreservationnonoverlapPASS.
+Onlynewflagsmidowifipower=1 midogpurate=1;midogpustatus=0,frontendsOFF.
+Verifiedone midoTWRP->stockproductmido->knownlk2nd->lk2nd-msm8953;
+loaderandcandidatefastbootboot bothOKAY/status0. No partitionflash or
+additionalrootfswrites. ThisisLOADERacceptance,notUI/rate/powerproof.
+Private logs/shared-power-rate-0130-validation.json and
+logs/shared-power-rate-0130-temp-boot-20261106.json recordexacthashes.
+NOWuserphysicalUIcheckthenreturnTWRPforONEfreshcombinedlog;donotreboot
+againorclaimGPU/WiFiworks. Safe0127imagepreservedforrecovery.
+WhileCIran: pinnedarm-smmuCXregulatorhookrestoressecurecfg(deviceGPU18,
+context0)thenresumesSMMU;ourpathlacksit. Confirmedsourcegap,NOTproven
+paniccause. NOTimplemented/called;donotguesssecurity/globalSMMUwrites.
+See0130noteadditionalpath;nexttracebus/QoS/securehandoff,CPandPronto
+SCMclocks/IRIS/PAS6/SMD/DXE. Keepunrelatedworktreechangesunstaged.
+
 ## MIDO active 2026-11-06:0130 shared Pronto power and GPU active-rate candidate
 
 Real opt-in RPM requests added: midowifipower=1 supplies/XO, active/sleep
