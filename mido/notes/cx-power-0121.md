@@ -1,5 +1,20 @@
 # 0120 hardware findings and guarded0121/0122 follow-up
 
+## Fixed0122 full build and temporary boot
+
+Sourcebd16945a04e99ed38077e00fdd768727677652ac; CI42248229643 PASS8m1s.
+Kernel SHA256c99700d78cb9d0621785ac8e4d040d191435d2db4c3d6df4ff86d9ab2e858288.
+Image SHA2569238b514fc6d7fffd641f70d8283460ca1371c264a05ae26e98c7968f3c9644e.
+CIchecksum verified;0120 shim/DTB/ADT/memory/root unchanged, only3new
+diagnostic bootargs added.8CPU/working edge events retained. Scanner
+single0xb32d54 hit is complete SHA256 K256 table, no real unsupported
+instructions. Verified TWRP mido, stockfastboot productmido, known lk2nd
+temporary boot accepted, productlk2nd-msm8953, candidate RAMboot accepted.
+No partition flashing. Acceptance is by loader ONLY; user UI check and
+recovery log still needed for actualCXpower/WCNSS/spawn results.
+User should try Settings/Safari/SMS once each with a20-30second pause,
+check ControlCenter/touch/WLED, then returnTWRP for one combined log.
+
 ## Actual0120 evidence
 
 User confirms bottom Control Center now opens, but apps no longer open;
