@@ -18,6 +18,8 @@
 #include "mido_gpu_cx.h"
 #include "mido_gpu_audit.h"
 #include "mido_gpu_bhs_runtime.h"
+#include "mido_gpu_cx_power.h"
+#include "mido_wcnss_audit.h"
 
 extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
@@ -224,9 +226,15 @@ MidoInput::touchRails(void)
             IOLog("MIDO GPU BHS: result=%d; snapshot after preparation\n", bhs_result);
             mido_gpu_audit();
         }
+        int power_result = mido_gpu_cx_power(result, bhs_result);
+        if (power_result != 0) {
+            IOLog("MIDO GPU CX POWER: result=%d; snapshot after request\n", power_result);
+            mido_gpu_audit();
+        }
     } else if (gpu_cx) {
         IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
     }
+    mido_wcnss_audit(&rpm);
     IOSleep(50);
     return ok;
 }

@@ -1,0 +1,25 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -4202,6 +4202,22 @@
+ 	}
+ 
+ bad:
++
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++    static uint32_t mido_spawn_reports = 0;
++    unsigned mido_spawn_diag = 0;
++    if (error != 0 && PE_parse_boot_argn("midospawndiag", &mido_spawn_diag, sizeof(mido_spawn_diag)) &&
++        mido_spawn_diag == 1 && os_atomic_inc_orig(&mido_spawn_reports, relaxed) < 64) {
++        char mido_path[192] = {};
++        size_t mido_path_size = 0;
++        int mido_path_error = copyinstr(uap->path, mido_path, sizeof(mido_path), &mido_path_size);
++        mido_path[sizeof(mido_path) - 1] = 0;
++        uint64_t mido_spawn_ns = 0;
++        absolutetime_to_nanoseconds(mach_absolute_time(), &mido_spawn_ns);
++        printf("MIDO SPAWN: parent=%s errno=%d path=%s path-error=%d uptime-ms=%llu\n",
++            ap->p_name, error, mido_path, mido_path_error, mido_spawn_ns / 1000000ULL);
++    }
++#endif
+ 
+ 	if (error == 0) {
+ 		/* reset delay idle sleep status if set */

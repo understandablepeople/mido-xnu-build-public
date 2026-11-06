@@ -32,3 +32,15 @@ class NextStageTests(unittest.TestCase):
 
     def test_wcnss_fragmentation_exact_boundaries_bitmap_skip_and_failures(self):
         self.compile_and_run("wcnss_control_host.c", "wifi")
+
+    def test_wcnss_discovery_is_bounded_and_read_only(self):
+        self.compile_and_run("wcnss_smem_host.c", "wifi")
+
+    def test_cx_power_is_gated_and_stops_without_gx_or_clock_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "cx-power"
+            subprocess.run([shutil.which("c++"), "-std=c++14", "-Wall", "-Wextra", "-Werror",
+                            "-fsanitize=address,undefined",
+                            "-I", str(ROOT / "mido/gpu"),
+                            str(ROOT / "mido/tests/gpu_cx_power_host.cpp"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)

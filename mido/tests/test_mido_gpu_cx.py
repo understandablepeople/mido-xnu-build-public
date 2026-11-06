@@ -18,7 +18,10 @@ class CxSourceTests(unittest.TestCase):
                 ("MidoInput.cpp", "0107-mido-polled-input-battery.patch", "input"),
                 ("mido_gpu_cx.h", "0115-mido-serialized-gpu-cx-vote.patch", "gpu"),
                 ("mido_gpu_bhs.h", "0118-mido-gfx-bhs-preparation.patch", "gpu"),
-                ("mido_gpu_bhs_runtime.h", "0118-mido-gfx-bhs-preparation.patch", "gpu")):
+                ("mido_gpu_bhs_runtime.h", "0118-mido-gfx-bhs-preparation.patch", "gpu"),
+                ("mido_gpu_cx_power.h", "0121-mido-cx-domain-and-wcnss-discovery.patch", "gpu"),
+                ("mido_wcnss_smem.h", "0121-mido-cx-domain-and-wcnss-discovery.patch", "wifi"),
+                ("mido_wcnss_audit.h", "0121-mido-cx-domain-and-wcnss-discovery.patch", "wifi")):
             self.assertEqual(kernel_source(ROOT, name, base),
                              (ROOT / "mido" / canonical / name).read_text())
 

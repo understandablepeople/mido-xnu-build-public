@@ -1,0 +1,173 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -18,6 +18,8 @@
+ #include "mido_gpu_cx.h"
+ #include "mido_gpu_audit.h"
+ #include "mido_gpu_bhs_runtime.h"
++#include "mido_gpu_cx_power.h"
++#include "mido_wcnss_audit.h"
+ 
+ extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
+@@ -224,9 +226,15 @@
+             IOLog("MIDO GPU BHS: result=%d; snapshot after preparation\n", bhs_result);
+             mido_gpu_audit();
+         }
++        int power_result = mido_gpu_cx_power(result, bhs_result);
++        if (power_result != 0) {
++            IOLog("MIDO GPU CX POWER: result=%d; snapshot after request\n", power_result);
++            mido_gpu_audit();
++        }
+     } else if (gpu_cx) {
+         IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
+     }
++    mido_wcnss_audit(&rpm);
+     IOSleep(50);
+     return ok;
+ }
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_cx_power.h
+@@ -0,0 +1,56 @@
++#ifndef MIDO_GPU_CX_POWER_H
++#define MIDO_GPU_CX_POWER_H
++
++#ifndef MIDO_GPU_CX_LOAD
++#define MIDO_GPU_CX_LOAD(target) mido_gpu_bhs_load(target)
++#endif
++#ifndef MIDO_GPU_CX_STORE
++#define MIDO_GPU_CX_STORE(target, value) mido_gpu_bhs_store(target, value)
++#endif
++
++static int
++mido_gpu_cx_power(int cx_result, int bhs_result)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midogpucxpower", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1 || cx_result != 0 || bhs_result != 1) {
++        IOLog("MIDO GPU CX POWER: skipped mode=%u cx=%d bhs=%d\n", mode, cx_result, bhs_result);
++        return -1;
++    }
++    vm_offset_t mapped = ml_io_map(0x01858000, 0x8000);
++    if (!mapped) {
++        return -2;
++    }
++    volatile uint32_t *registers = (volatile uint32_t *)mapped;
++    volatile uint32_t *cx = registers + (0x5904c - 0x58000) / 4;
++    uint32_t gx = MIDO_GPU_CX_LOAD(registers + (0x5901c - 0x58000) / 4);
++    uint32_t before = MIDO_GPU_CX_LOAD(cx);
++    uint32_t control = MIDO_GPU_CX_LOAD(registers + (0x5f01c - 0x58000) / 4);
++    if ((gx & 0x80000003U) != 1U || (before & 0x80000003U) != 1U ||
++        (control & 0xe0000217U) != 0x20000010U) {
++        IOLog("MIDO GPU CX POWER: rejected cx=%08x gx=%08x ctl=%08x; no writes\n", before, gx, control);
++        return -3;
++    }
++    uint32_t requested = before & ~1U;
++    MIDO_GPU_CX_STORE(cx, requested);
++    IODelay(1);
++    for (unsigned attempt = 0; attempt < 1000; attempt++) {
++        uint32_t actual = MIDO_GPU_CX_LOAD(cx);
++        if ((actual & 0x7fffffffU) != requested) {
++            IOLog("MIDO GPU CX POWER: readback mismatch before=%08x want=%08x got=%08x\n", before, requested, actual);
++            return -4;
++        }
++        if (actual & 0x80000000U) {
++            IOLog("MIDO GPU CX POWER: on cx=%08x polls=%u; GX/clocks/GPU untouched\n", actual, attempt + 1);
++            return 1;
++        }
++        IODelay(1);
++    }
++    IOLog("MIDO GPU CX POWER: timeout cx=%08x; no GX/clock/GPU requests or rollback\n", MIDO_GPU_CX_LOAD(cx));
++    return -5;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_wcnss_smem.h
+@@ -0,0 +1,48 @@
++#ifndef MIDO_WCNSS_SMEM_H
++#define MIDO_WCNSS_SMEM_H
++
++#include <stdint.h>
++#include <stddef.h>
++
++struct mido_wcnss_channel {
++    uint32_t cid, type, references;
++};
++
++static inline int
++mido_wcnss_find_channel(const volatile uint32_t *table, size_t bytes,
++    struct mido_wcnss_channel *output)
++{
++    if (table == NULL || output == NULL || bytes == 0 || bytes % 32 || bytes > 64 * 32) {
++        return -1;
++    }
++    static const char expected[] = "WCNSS_CTRL";
++    int found = 0;
++    struct mido_wcnss_channel candidate = {0, 0, 0};
++    for (size_t entry = 0; entry < bytes / 4; entry += 8) {
++        int match = 1;
++        for (size_t index = 0; index < sizeof(expected); index++) {
++            uint32_t word = table[entry + index / 4];
++            unsigned character = (word >> (8 * (index % 4))) & 255U;
++            if (character != (unsigned char)expected[index]) {
++                match = 0;
++                break;
++            }
++        }
++        if (!match || (table[entry + 6] & 255U) != 6U || table[entry + 7] == 0) {
++            continue;
++        }
++        if (table[entry + 5] >= 64 || found) {
++            return -1;
++        }
++        candidate.cid = table[entry + 5];
++        candidate.type = table[entry + 6];
++        candidate.references = table[entry + 7];
++        found = 1;
++    }
++    if (found) {
++        *output = candidate;
++    }
++    return found;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_wcnss_audit.h
+@@ -0,0 +1,33 @@
++#ifndef MIDO_WCNSS_AUDIT_H
++#define MIDO_WCNSS_AUDIT_H
++
++#include "mido_wcnss_smem.h"
++
++static void
++mido_wcnss_audit(struct mido_rpm_io *io)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midowifiaudit", &mode, sizeof(mode));
++    if (mode == 0) {
++        return;
++    }
++    if (mode != 1 || io == NULL || io->smem == NULL ||
++        io->smem_size < 4 * (52 + 4 * (MIDO_SMEM_LAST_ITEM + 1))) {
++        IOLog("MIDO WIFI: rejected audit mode/mapping; no channel writes\n");
++        return;
++    }
++    MIDO_RPM_BARRIER();
++    if (io->smem[48] != 1) {
++        IOLog("MIDO WIFI: unsupported legacy SMEM heap; no channel writes\n");
++        return;
++    }
++    uint32_t bytes = 0;
++    volatile uint32_t *table = mido_smem_item(io, MIDO_SMEM_CHANNEL_TBL, &bytes);
++    struct mido_wcnss_channel channel = {0, 0, 0};
++    int result = mido_wcnss_find_channel(table, bytes, &channel);
++    IOLog("MIDO WIFI: read-only legacy WCNSS_CTRL edge6 discovery result=%d cid=%u type=%08x refs=%u\n",
++        result, channel.cid, channel.type, channel.references);
++    IOLog("MIDO WIFI: no channel open/IPC/PAS/firmware/NV/DXE writes; radio not started\n");
++}
++
++#endif
