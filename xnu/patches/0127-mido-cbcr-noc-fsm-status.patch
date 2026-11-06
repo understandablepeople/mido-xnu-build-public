@@ -1,0 +1,92 @@
+--- a/iokit/Kernel/arm/mido_gpu_clocks.h
++++ b/iokit/Kernel/arm/mido_gpu_clocks.h
+@@ -1,5 +1,7 @@
+ #ifndef MIDO_GPU_CLOCKS_H
+ #define MIDO_GPU_CLOCKS_H
++
++#include "mido_cbcr.h"
+ 
+ static int
+ mido_gpu_clocks_run(volatile uint32_t *registers)
+@@ -21,7 +23,7 @@
+     }
+     for (unsigned index = 0; index < 6; index++) {
+         before[index] = MIDO_GPU_GX_LOAD(registers + (offsets[index] - 0x58000) / 4);
+-        if ((before[index] & 0x80000003U) != 0x80000000U) {
++        if ((before[index] & 0xf0000003U) != 0x80000000U) {
+             IOLog("MIDO GPU CLOCKS: branch=%05x unexpected=%08x; no writes\n",
+                 offsets[index], before[index]);
+             return -4;
+@@ -34,11 +36,11 @@
+         bool ready = false;
+         for (unsigned attempt = 0; attempt < 1000; attempt++) {
+             uint32_t actual = MIDO_GPU_GX_LOAD(branch);
+-            if ((actual & 0x7fffffffU) != (requested & 0x7fffffffU)) {
++            if ((actual & 0x0fffffffU) != (requested & 0x0fffffffU)) {
+                 IOLog("MIDO GPU CLOCKS: branch=%05x mismatch=%08x; stopped\n", offsets[index], actual);
+                 return -5;
+             }
+-            if (!(actual & 0x80000000U)) {
++            if (mido_cbcr_status_on(actual)) {
+                 IOLog("MIDO GPU CLOCKS: branch=%05x on=%08x polls=%u\n", offsets[index], actual, attempt + 1);
+                 ready = true;
+                 break;
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -1,5 +1,7 @@
+ #ifndef MIDO_GPU_STATUS_H
+ #define MIDO_GPU_STATUS_H
++
++#include "mido_cbcr.h"
+ 
+ static int
+ mido_gpu_status(int clocks_result)
+@@ -26,7 +28,7 @@
+         (MIDO_GPU_GX_LOAD(clock + 0x7028 / 4) & 3U) == 3U;
+     static const unsigned branches[] = {0x1028, 0x1030, 0x1034, 0x1040, 0x1044, 0x1020};
+     for (unsigned offset : branches) {
+-        if ((MIDO_GPU_GX_LOAD(clock + offset / 4) & 0x80000003U) != 1U) {
++        if (!mido_cbcr_branch_on(MIDO_GPU_GX_LOAD(clock + offset / 4))) {
+             ready = false;
+         }
+     }
+--- a/iokit/Kernel/arm/mido_wcnss_clocks.h
++++ b/iokit/Kernel/arm/mido_wcnss_clocks.h
+@@ -1,5 +1,7 @@
+ #ifndef MIDO_WCNSS_CLOCKS_H
+ #define MIDO_WCNSS_CLOCKS_H
++
++#include "mido_cbcr.h"
+ 
+ static int
+ mido_wcnss_clocks(void)
+@@ -38,6 +40,9 @@
+         command, config, core, bus, iface);
+     IOLog("MIDO WIFI CLOCKS: gpll0=%08x pll-vote=%08x branch-vote=%08x; target80MHz not programmed\n",
+         pll_mode, pll_vote, branch_vote);
++    IOLog("MIDO WIFI CLOCKS: core-on=%u bus-on=%u iface-on=%u gpll0-locked=%u apcs-crypto-votes=%u; shared state not reprogrammed\n",
++        mido_cbcr_status_on(core) ? 1U : 0U, mido_cbcr_status_on(bus) ? 1U : 0U,
++        mido_cbcr_status_on(iface) ? 1U : 0U, (pll_mode >> 30) & 1U, branch_vote & 7U);
+     IOLog("MIDO WIFI CLOCKS: GCC read-only; XO RPM vote/supplies/PAS firmware/radio not requested\n");
+     return 1;
+ }
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_cbcr.h
+@@ -0,0 +1,17 @@
++#ifndef MIDO_CBCR_H
++#define MIDO_CBCR_H
++
++static inline bool
++mido_cbcr_status_on(uint32_t value)
++{
++    uint32_t state = value & 0xf0000000U;
++    return state == 0 || state == 0x20000000U;
++}
++
++static inline bool
++mido_cbcr_branch_on(uint32_t value)
++{
++    return (value & 3U) == 1U && mido_cbcr_status_on(value);
++}
++
++#endif

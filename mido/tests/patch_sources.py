@@ -26,7 +26,8 @@ def kernel_source(root, name, base):
                       "0123-mido-cx-writable-readback.patch",
                       "0124-mido-gx-xo-power-and-scm-info.patch",
                       "0125-mido-gpu-branches-and-pas-support.patch",
-                      "0126-mido-temporary-mmio-map-lifetime.patch"):
+                      "0126-mido-temporary-mmio-map-lifetime.patch",
+                      "0127-mido-cbcr-noc-fsm-status.patch"):
             if later <= base:
                 continue
             subprocess.run(["git", "apply", "--include=" + relative,

@@ -1,5 +1,26 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06: fresh0126 PAS6/13 yes;0127 NoC status fix ready
+
+Read-onlyTWRPpull logs/mmio-0126-live-20261106.txt FRESH308360bytes/flush447,
+SHA25bd9a6459df2d40efae3b6b5643f3c02a8be2a0d0a679b7252e8a4536b09cd8.
+No panic text in capturedlog;SpringBoard530996ms,Preferences793256/
+882728/1035059ms exec. BothPAS6andPAS13 transport0/support1/SMC64.
+WiFi crypto-root0/cfg109/core4ff0/bus0/iface20008000,GPLL0c0118000,
+PLLvotea1/APCSbranchvote1e407; nofirmwarestartup/networkproof.
+CX/GX/BHS/root againon. AHB59028write read20008001 hitfalsemismatch-5;
+no laterbranchwrites orGPUregisterread. Pinnedclock-local2.c defines
+bits31:28status,ON0orNoC_FSM_ON2,OFF8. Codewronglycomparedstatusbit29.
+0127fixsharedmido_cbcr.h:comparelower28controlbits,pollstatus0/2only,
+strictOFF8preflight;GPUstatusgateandhostparseraligned. WiFistatusdecode
+addedwithoutsharedclockreprogramming. All16nibblestates tested;API fix0126
+retained. Preflight185436Z:93testsPASS(oneNDKskip),4ARM64objectsPASS,
+firmware/ownDT/combinedplanPASS;oldvalidator12gaps/3CRLFscriptsunchanged.
+Detailsmido/notes/runtime-0126-cbcr.md. CurrentphoneTWRP. No0127bootyet.
+NEXT scopedsourcepush/singleCI thenverifiedsameflagsRAMbootonly. Donot
+claimcompleteGPUacceleration/WiFi;noauth/firmware/radio/partitionwrites.
+Keepprivate logs/backups,unrelatedshim/build.sh/dyldtools/localNOTESunstaged.
+
 ## MIDO active 2026-11-06:0126 MMIO fix CI PASS, temporary boot accepted
 
 User0125photo confirmsvm_map_deletepermanententrypanic;exactkernelsymbols

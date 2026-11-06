@@ -46,7 +46,8 @@ class CxSourceTests(unittest.TestCase):
                 ("mido_scm_probe.h", "0124-mido-gx-xo-power-and-scm-info.patch", "wifi"),
                 ("mido_gpu_clocks.h", "0125-mido-gpu-branches-and-pas-support.patch", "gpu"),
                 ("mido_gpu_status.h", "0125-mido-gpu-branches-and-pas-support.patch", "gpu"),
-                ("mido_wcnss_clocks.h", "0125-mido-gpu-branches-and-pas-support.patch", "wifi")):
+                ("mido_wcnss_clocks.h", "0125-mido-gpu-branches-and-pas-support.patch", "wifi"),
+                ("mido_cbcr.h", "0127-mido-cbcr-noc-fsm-status.patch", "gpu")):
             self.assertEqual(kernel_source(ROOT, name, base),
                              (ROOT / "mido" / canonical / name).read_text())
 

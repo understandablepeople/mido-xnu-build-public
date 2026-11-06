@@ -13,7 +13,7 @@ def summarize(text):
     expected = {"59028", "59030", "59034", "59040", "59044", "59020"}
     clocks = re.findall(r"MIDO GPU CLOCKS: result=(-?\d+)", text)
     six_on = set(branches) == expected and all(
-        value["value"] & 0x80000003 == 1 and 1 <= value["polls"] <= 1000
+        value["value"] & 3 == 1 and value["value"] & 0xf0000000 in (0, 0x20000000) and 1 <= value["polls"] <= 1000
         for value in branches.values())
     clock_proof = six_on and bool(clocks) and clocks[-1] == "1"
     support = {}

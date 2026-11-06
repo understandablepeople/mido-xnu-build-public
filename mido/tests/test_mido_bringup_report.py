@@ -9,6 +9,15 @@ SPEC.loader.exec_module(REPORT)
 
 
 class BringupReportTests(unittest.TestCase):
+    def test_noc_fsm_on_is_valid_but_other_status_nibbles_are_not(self):
+        text = self.log().replace("on=00000001", "on=20008001", 1)
+        self.assertTrue(REPORT.summarize(text)["gpu_six_clocks_on"])
+        for nibble in range(1, 16):
+            if nibble == 2:
+                continue
+            text = self.log().replace("on=00000001", f"on={nibble:x}0000001", 1)
+            self.assertFalse(REPORT.summarize(text)["gpu_six_clocks_on"])
+
     def log(self):
         text = "".join(f"MIDO GPU CLOCKS: branch={offset} on=00000001 polls=1\n"
                        for offset in ("59028", "59030", "59034", "59040", "59044", "59020"))

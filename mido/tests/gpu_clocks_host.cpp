@@ -7,7 +7,7 @@
 typedef uintptr_t vm_offset_t;
 #define VM_WIMG_IO 7U
 static uint32_t registers[0x8000 / 4];
-static unsigned mode, writes, maps, unmaps, reads, ready, failed, timeout_branch, mismatch_branch;
+static unsigned mode, writes, maps, unmaps, reads, ready, failed, timeout_branch, mismatch_branch, on_status;
 static bool map_failure;
 static const unsigned offsets[] = {0x1028, 0x1030, 0x1034, 0x1040, 0x1044, 0x1020};
 static void IOLog(const char *, ...) {}
@@ -36,7 +36,7 @@ static uint32_t load(volatile uint32_t *target)
     if (writes && target == registers + offsets[writes - 1] / 4) {
         reads++;
         if (writes == mismatch_branch) return *target ^ 2U;
-        if (writes != timeout_branch && reads >= ready) return *target & ~0x80000000U;
+        if (writes != timeout_branch && reads >= ready) return (*target & ~0xf0000000U) | on_status;
     }
     return *target;
 }
@@ -55,7 +55,7 @@ static void reset()
     std::memset(registers, 0, sizeof(registers));
     mode = ready = 1;
     maps = unmaps = writes = reads = failed = timeout_branch = mismatch_branch = 0;
-    map_failure = false;
+    map_failure = false; on_status = 0;
     registers[0x1000 / 4] = 2;
     registers[0x104c / 4] = 0xa0222800;
     registers[0x101c / 4] = 0xa0225800;
@@ -90,5 +90,14 @@ int main()
     reset(); ready = 1000;
     assert(mido_gpu_clocks(1) == 1 && writes == 6 && reads == 1000 && unmaps == 1);
     reset(); assert(mido_gpu_clocks(1) == 1 && writes == 6 && unmaps == 1);
+    reset(); on_status = 0x20000000U;
+    assert(mido_gpu_clocks(1) == 1 && writes == 6 && unmaps == 1);
+    for (unsigned nibble = 1; nibble < 16; nibble++) {
+        if (nibble == 2) continue;
+        reset(); on_status = nibble << 28;
+        assert(mido_gpu_clocks(1) == -6 && writes == 1 && reads == 1000 && unmaps == 1);
+    }
+    reset(); registers[0x1028 / 4] = 0xa0004f00U;
+    assert(mido_gpu_clocks(1) == -4 && writes == 0 && unmaps == 1);
     return 0;
 }

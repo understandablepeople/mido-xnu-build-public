@@ -1,6 +1,8 @@
 #ifndef MIDO_GPU_CLOCKS_H
 #define MIDO_GPU_CLOCKS_H
 
+#include "mido_cbcr.h"
+
 static int
 mido_gpu_clocks_run(volatile uint32_t *registers)
 {
@@ -21,7 +23,7 @@ mido_gpu_clocks_run(volatile uint32_t *registers)
     }
     for (unsigned index = 0; index < 6; index++) {
         before[index] = MIDO_GPU_GX_LOAD(registers + (offsets[index] - 0x58000) / 4);
-        if ((before[index] & 0x80000003U) != 0x80000000U) {
+        if ((before[index] & 0xf0000003U) != 0x80000000U) {
             IOLog("MIDO GPU CLOCKS: branch=%05x unexpected=%08x; no writes\n",
                 offsets[index], before[index]);
             return -4;
@@ -34,11 +36,11 @@ mido_gpu_clocks_run(volatile uint32_t *registers)
         bool ready = false;
         for (unsigned attempt = 0; attempt < 1000; attempt++) {
             uint32_t actual = MIDO_GPU_GX_LOAD(branch);
-            if ((actual & 0x7fffffffU) != (requested & 0x7fffffffU)) {
+            if ((actual & 0x0fffffffU) != (requested & 0x0fffffffU)) {
                 IOLog("MIDO GPU CLOCKS: branch=%05x mismatch=%08x; stopped\n", offsets[index], actual);
                 return -5;
             }
-            if (!(actual & 0x80000000U)) {
+            if (mido_cbcr_status_on(actual)) {
                 IOLog("MIDO GPU CLOCKS: branch=%05x on=%08x polls=%u\n", offsets[index], actual, attempt + 1);
                 ready = true;
                 break;

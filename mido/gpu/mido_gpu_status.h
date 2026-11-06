@@ -1,6 +1,8 @@
 #ifndef MIDO_GPU_STATUS_H
 #define MIDO_GPU_STATUS_H
 
+#include "mido_cbcr.h"
+
 static int
 mido_gpu_status(int clocks_result)
 {
@@ -26,7 +28,7 @@ mido_gpu_status(int clocks_result)
         (MIDO_GPU_GX_LOAD(clock + 0x7028 / 4) & 3U) == 3U;
     static const unsigned branches[] = {0x1028, 0x1030, 0x1034, 0x1040, 0x1044, 0x1020};
     for (unsigned offset : branches) {
-        if ((MIDO_GPU_GX_LOAD(clock + offset / 4) & 0x80000003U) != 1U) {
+        if (!mido_cbcr_branch_on(MIDO_GPU_GX_LOAD(clock + offset / 4))) {
             ready = false;
         }
     }

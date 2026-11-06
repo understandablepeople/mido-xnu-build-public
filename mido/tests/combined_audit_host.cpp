@@ -84,6 +84,13 @@ int main()
         assert(mido_gpu_status(1) == -3 && maps == 1 && unmaps == 1 && gpu_reads == 0);
     }
     reset(); assert(mido_gpu_status(1) == 1 && gpu_reads == 4 && unmaps == 2);
+    reset(); clocks[0x1028 / 4] = 0x20008001;
+    assert(mido_gpu_status(1) == 1 && gpu_reads == 4 && unmaps == 2);
+    for (unsigned nibble = 1; nibble < 16; nibble++) {
+        if (nibble == 2) continue;
+        reset(); clocks[0x1028 / 4] = (nibble << 28) | 1;
+        assert(mido_gpu_status(1) == -3 && gpu_reads == 0 && unmaps == 1);
+    }
     for (uint32_t value : {0U, 0xffffffffU}) {
         reset(); gpu[0x3000] = value;
         assert(mido_gpu_status(1) == -5 && gpu_reads == 4 && unmaps == 2);

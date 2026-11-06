@@ -1,6 +1,8 @@
 #ifndef MIDO_WCNSS_CLOCKS_H
 #define MIDO_WCNSS_CLOCKS_H
 
+#include "mido_cbcr.h"
+
 static int
 mido_wcnss_clocks(void)
 {
@@ -38,6 +40,9 @@ mido_wcnss_clocks(void)
         command, config, core, bus, iface);
     IOLog("MIDO WIFI CLOCKS: gpll0=%08x pll-vote=%08x branch-vote=%08x; target80MHz not programmed\n",
         pll_mode, pll_vote, branch_vote);
+    IOLog("MIDO WIFI CLOCKS: core-on=%u bus-on=%u iface-on=%u gpll0-locked=%u apcs-crypto-votes=%u; shared state not reprogrammed\n",
+        mido_cbcr_status_on(core) ? 1U : 0U, mido_cbcr_status_on(bus) ? 1U : 0U,
+        mido_cbcr_status_on(iface) ? 1U : 0U, (pll_mode >> 30) & 1U, branch_vote & 7U);
     IOLog("MIDO WIFI CLOCKS: GCC read-only; XO RPM vote/supplies/PAS firmware/radio not requested\n");
     return 1;
 }
