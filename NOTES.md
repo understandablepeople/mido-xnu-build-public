@@ -1,5 +1,26 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0130 fresh runtime power/rate acknowledgements PASS
+
+Fresh read-only recovery pull: logs/shared-power-rate-0130-runtime-20261106.txt,
+243276 bytes, flush320; SHA256
+84fcb3c0976fb2f1db52ba30a8b8a64b7008e61a5407854c04c530dbc9b72f5a.
+New0130 markers establish this is not the prior safe0127 capture.
+All11 supply requests (including sleep) and XO summary acknowledged;
+shared CX floor256 preserved by subsequent GPU vote. Six GPU branches ON;
+core59020=00006f01. GFX nominal133330000 selection acknowledged in1poll.
+8/8 CPUs initialized, SGI1 verified. Reporter finds no panic text.
+No actual GPU register/CP/rendering or Wi-Fi firmware/network proof.
+WCNSS_CTRL absent. Existing crypto clocks report ON, but80MHz not programmed.
+The read-only WIFI CLOCKS footer saying supplies not requested is stale wording:
+preceding WIFI POWER messages establish successful supply/XO requests.
+No new reboot/flash/rootfs/MMIO writes during collection.
+Next implement the source-backed secure handoff/AXI path and Pronto firmware
+startup, not another unchanged power-only boot. Android static-CB SMMU resume
+uses scm_io_write after secure restore, not a direct guessed MMIO write;
+regulator notifier brackets it with prepare/power-on and power-off/unprepare.
+Neither secure operation is implemented here; neither is a proven panic fix.
+
 ## MIDO active 2026-11-06:0130 CI PASS and verified lk2nd RAM boot accepted
 
 Source960e7aaf8f6b93008ffd4bde7c213ad0215ea0b2; CI42287667388 SUCCESS,

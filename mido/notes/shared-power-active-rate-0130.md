@@ -1,5 +1,19 @@
 # 0130: shared Pronto power and GPU active-rate candidate
 
+## Fresh runtime result (2026-11-06)
+
+Recovery capture: 243276 bytes, flush320; SHA256
+84fcb3c0976fb2f1db52ba30a8b8a64b7008e61a5407854c04c530dbc9b72f5a.
+All supply/sleep requests and XO summary acknowledged; shared CX floor256
+preserved. Six GPU branches ON, core59020=00006f01; nominal133330000
+selection acknowledged in one poll. All eight CPUs initialized; no panic
+text in the capture. These new markers distinguish it from safe0127.
+WCNSS_CTRL remains absent; no GPU register/rendering or Wi-Fi network proof.
+No reboot or device writes during this collection. Earlier deployment and
+awaiting-runtime paragraphs below describe historical pre-capture status.
+The WIFI CLOCKS footer about unrequested supplies is obsolete wording, not
+a failure of the preceding successful WIFI POWER requests.
+
 ## Implemented runtime requests
 
 Both switches default off. midowifipower=1 runs after successful touch rails,
