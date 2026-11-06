@@ -17,6 +17,7 @@
 #include "mido_input_state.h"
 #include "mido_gpu_cx.h"
 #include "mido_gpu_audit.h"
+#include "mido_gpu_bhs_runtime.h"
 
 extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
@@ -218,6 +219,11 @@ MidoInput::touchRails(void)
             MIDO_GPU_CX_INITIAL_LEVEL, result, rpm.ack[0], rpm.ack[1]);
         IOLog("MIDO GPU CX: audit after vote; no GDSC/GFX-LDO/GPU/SMMU writes\n");
         mido_gpu_audit();
+        int bhs_result = mido_gpu_bhs_prepare(result);
+        if (bhs_result != 0) {
+            IOLog("MIDO GPU BHS: result=%d; snapshot after preparation\n", bhs_result);
+            mido_gpu_audit();
+        }
     } else if (gpu_cx) {
         IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
     }

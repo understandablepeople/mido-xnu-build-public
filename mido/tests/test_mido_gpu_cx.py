@@ -16,7 +16,9 @@ class CxSourceTests(unittest.TestCase):
     def test_patch_reconstructs_current_driver_and_header(self):
         for name, base, canonical in (
                 ("MidoInput.cpp", "0107-mido-polled-input-battery.patch", "input"),
-                ("mido_gpu_cx.h", "0115-mido-serialized-gpu-cx-vote.patch", "gpu")):
+                ("mido_gpu_cx.h", "0115-mido-serialized-gpu-cx-vote.patch", "gpu"),
+                ("mido_gpu_bhs.h", "0118-mido-gfx-bhs-preparation.patch", "gpu"),
+                ("mido_gpu_bhs_runtime.h", "0118-mido-gfx-bhs-preparation.patch", "gpu")):
             self.assertEqual(kernel_source(ROOT, name, base),
                              (ROOT / "mido" / canonical / name).read_text())
 

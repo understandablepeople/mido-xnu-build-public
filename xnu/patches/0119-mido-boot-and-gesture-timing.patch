@@ -1,0 +1,129 @@
+--- a/iokit/Kernel/arm/hid/MidoHID.cpp
++++ b/iokit/Kernel/arm/hid/MidoHID.cpp
+@@ -21,6 +21,7 @@
+ #include <IOKit/IOTimerEventSource.h>
+ #include <libkern/c++/OSArray.h>
+ #include <pexpert/pexpert.h>
++#include <kern/clock.h>
+ 
+ #include "../mido_scanout.h"
+ #include "IOHIDEventService.h"
+@@ -525,7 +526,9 @@
+ 	struct mido_touch_trace trace = {};
+ 	bool report = false;
+ 	if (fTraceMode == 1 && fTraceReports < 64) {
+-		mido_touch_trace_update(&fTrace[finger], was, down, x, y);
++        uint64_t now_ns = 0;
++        absolutetime_to_nanoseconds(now, &now_ns);
++        mido_touch_trace_update(&fTrace[finger], was, down, x, y, now_ns);
+ 		if (was && !down) {
+ 			trace = fTrace[finger];
+ 			fTraceReports++;
+@@ -539,9 +542,11 @@
+ 	}
+ 	dispatchEvent(collection);
+ 	if (report) {
+-		IOLog("MIDO HID TRACE: slot=%d events=%u start=%d,%d end=%d,%d y=%d..%d mask=0x%x\n",
++        IOLog("MIDO HID TRACE: slot=%d events=%u start=%d,%d end=%d,%d y=%d..%d mask=0x%x\n",
+ 		    finger, trace.events, trace.start_x, trace.start_y, trace.end_x, trace.end_y,
+-		    trace.min_y, trace.max_y, cmask);
++            trace.min_y, trace.max_y, cmask);
++        IOLog("MIDO HID TIME: slot=%d duration-ms=%llu max-gap-ms=%llu\n", finger,
++            (trace.ended_ns - trace.started_ns) / 1000000ULL, trace.max_gap_ns / 1000000ULL);
+ 	}
+ 	collection->release();
+ }
+--- a/iokit/Kernel/arm/mido_touch_trace.h
++++ b/iokit/Kernel/arm/mido_touch_trace.h
+@@ -4,21 +4,29 @@
+ #include <stdint.h>
+ 
+ struct mido_touch_trace {
++    uint64_t started_ns, ended_ns, max_gap_ns;
+     uint32_t events;
+     int32_t start_x, start_y, end_x, end_y, min_y, max_y;
+ };
+ 
+ static inline void
+ mido_touch_trace_update(struct mido_touch_trace *trace, int was_down,
+-    int down, int32_t x, int32_t y)
++    int down, int32_t x, int32_t y, uint64_t now_ns)
+ {
+     if (!was_down && down) {
+         trace->events = 0;
++        trace->started_ns = now_ns;
++        trace->ended_ns = now_ns;
++        trace->max_gap_ns = 0;
+         trace->start_x = x;
+         trace->start_y = y;
+         trace->min_y = y;
+         trace->max_y = y;
+     }
++    if (now_ns >= trace->ended_ns && now_ns - trace->ended_ns > trace->max_gap_ns) {
++        trace->max_gap_ns = now_ns - trace->ended_ns;
++    }
++    trace->ended_ns = now_ns;
+     if (trace->events != UINT32_MAX) {
+         trace->events++;
+     }
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7413,7 +7413,9 @@
+ 			}
+ #if defined(ARM64_BOARD_CONFIG_MIDO)
+ 			/* MIDO runs every iOS binary this way: one short line per exec. */
+-			printf("exec %s\n", p->p_name);
++            uint64_t mido_exec_ns = 0;
++            absolutetime_to_nanoseconds(mach_absolute_time(), &mido_exec_ns);
++            printf("exec %s uptime-ms=%llu\n", p->p_name, mido_exec_ns / 1000000ULL);
+ #else
+ 			printf("Allowing spawn of iOS binary %s since it has "
+ 			    "com.apple.private.security.no-sandbox entitlement or unentitled_ios_sim_launch "
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -40,6 +40,9 @@
+ #include <vm/vm_options.h>
+ 
+ #include <kern/task.h>
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++#include <kern/clock.h>
++#endif
+ #include <kern/thread.h>
+ #include <kern/debug.h>
+ #include <kern/extmod_statistics.h>
+@@ -2890,7 +2893,15 @@
+ 	struct shared_file_mapping_slide_np *mappings = NULL;
+ 	kern_return_t                 kr = KERN_SUCCESS;
+ 
+-	files_count = uap->files_count;
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++    uint64_t mido_map_start = 0;
++    if (proc_getpid(p) == 1) {
++        absolutetime_to_nanoseconds(mach_absolute_time(), &mido_map_start);
++        printf("MIDO BOOT: dyld-map begin uptime-ms=%llu files=%u mappings=%u\n",
++            mido_map_start / 1000000ULL, uap->files_count, uap->mappings_count);
++    }
++#endif
++    files_count = uap->files_count;
+ 	mappings_count = uap->mappings_count;
+ 
+ 	if (files_count == 0) {
+@@ -2998,8 +3009,16 @@
+ 	kr = _shared_region_map_and_slide(p, files_count, shared_files, mappings_count, mappings);
+ done:
+ 	kfree_data(shared_files, files_count * sizeof(shared_files[0]));
+-	kfree_data(mappings, mappings_count * sizeof(mappings[0]));
+-	return kr;
++    kfree_data(mappings, mappings_count * sizeof(mappings[0]));
++#if defined(ARM64_BOARD_CONFIG_MIDO)
++    if (proc_getpid(p) == 1) {
++        uint64_t mido_map_end = 0;
++        absolutetime_to_nanoseconds(mach_absolute_time(), &mido_map_end);
++        printf("MIDO BOOT: dyld-map end uptime-ms=%llu elapsed-ms=%llu result=%d\n",
++            mido_map_end / 1000000ULL, (mido_map_end - mido_map_start) / 1000000ULL, kr);
++    }
++#endif
++    return kr;
+ }
+ 
+ /*

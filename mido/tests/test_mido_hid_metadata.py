@@ -28,6 +28,9 @@ class HIDMetadataTests(unittest.TestCase):
             target.write_text(self.after)
             subprocess.run(["git", "apply", str(ROOT / "xnu/patches/0116-mido-bounded-touch-gesture-trace.patch")],
                            cwd=directory, capture_output=True, check=True)
+            subprocess.run(["git", "apply", "--include=iokit/Kernel/arm/*",
+                            str(ROOT / "xnu/patches/0119-mido-boot-and-gesture-timing.patch")],
+                           cwd=directory, capture_output=True, check=True)
             source = target.read_text()
             self.assertIn("fTraceMode = 0;", source)
             self.assertIn("fTraceMode == 1 && fTraceReports < 64", source)

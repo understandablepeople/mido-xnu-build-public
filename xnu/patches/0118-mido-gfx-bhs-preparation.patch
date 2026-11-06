@@ -1,0 +1,134 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -17,6 +17,7 @@
+ #include "mido_input_state.h"
+ #include "mido_gpu_cx.h"
+ #include "mido_gpu_audit.h"
++#include "mido_gpu_bhs_runtime.h"
+ 
+ extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
+@@ -218,6 +219,11 @@
+             MIDO_GPU_CX_INITIAL_LEVEL, result, rpm.ack[0], rpm.ack[1]);
+         IOLog("MIDO GPU CX: audit after vote; no GDSC/GFX-LDO/GPU/SMMU writes\n");
+         mido_gpu_audit();
++        int bhs_result = mido_gpu_bhs_prepare(result);
++        if (bhs_result != 0) {
++            IOLog("MIDO GPU BHS: result=%d; snapshot after preparation\n", bhs_result);
++            mido_gpu_audit();
++        }
+     } else if (gpu_cx) {
+         IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
+     }
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_bhs.h
+@@ -0,0 +1,36 @@
++#ifndef MIDO_GPU_BHS_H
++#define MIDO_GPU_BHS_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define MIDO_GPU_BHS_STEPS 12U
++
++struct mido_gpu_bhs_step {
++    uint32_t offset, value;
++};
++
++static inline int
++mido_gpu_bhs_plan(uint32_t control, int cx_ack, int gx_off,
++    struct mido_gpu_bhs_step *steps, size_t capacity)
++{
++    if (steps == NULL || capacity < MIDO_GPU_BHS_STEPS || !cx_ack || !gx_off) {
++        return 0;
++    }
++    control = (control & ~(1U << 31)) | (1U << 29);
++    steps[0] = (struct mido_gpu_bhs_step){0x5f01c, control};
++    steps[1] = (struct mido_gpu_bhs_step){0x5f000, 0x203};
++    steps[2] = (struct mido_gpu_bhs_step){0x5f004, 0x05008600};
++    steps[3] = (struct mido_gpu_bhs_step){0x5f008, 0};
++    steps[4] = (struct mido_gpu_bhs_step){0x5f00c, 0xc3fc};
++    steps[5] = (struct mido_gpu_bhs_step){0x5f014, 0x004b1102};
++    static const uint32_t clear_bits[6] = {0, 1U << 9, 1U << 30,
++        1U << 1, 1U << 2, 1U};
++    for (unsigned index = 0; index < 6; index++) {
++        control = index == 0 ? control | (1U << 4) : control & ~clear_bits[index];
++        steps[6 + index] = (struct mido_gpu_bhs_step){0x5f01c, control};
++    }
++    return 1;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_bhs_runtime.h
+@@ -0,0 +1,70 @@
++#ifndef MIDO_GPU_BHS_RUNTIME_H
++#define MIDO_GPU_BHS_RUNTIME_H
++
++#include "mido_gpu_bhs.h"
++
++#ifndef MIDO_GPU_BHS_LOAD
++static uint32_t
++mido_gpu_bhs_load(volatile uint32_t *target)
++{
++    uint32_t value = *target;
++    __asm__ volatile("dmb oshld" ::: "memory");
++    return value;
++}
++#define MIDO_GPU_BHS_LOAD(target) mido_gpu_bhs_load(target)
++#endif
++
++#ifndef MIDO_GPU_BHS_STORE
++static void
++mido_gpu_bhs_store(volatile uint32_t *target, uint32_t value)
++{
++    __asm__ volatile("dmb oshst" ::: "memory");
++    *target = value;
++    __asm__ volatile("dsb osh" ::: "memory");
++}
++#define MIDO_GPU_BHS_STORE(target, value) mido_gpu_bhs_store(target, value)
++#endif
++
++static int
++mido_gpu_bhs_prepare(int cx_result)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midogpubhs", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1 || cx_result != 0) {
++        IOLog("MIDO GPU BHS: skipped mode=%u cx-result=%d\n", mode, cx_result);
++        return -1;
++    }
++    vm_offset_t mapped = ml_io_map(0x01858000, 0x8000);
++    if (!mapped) {
++        IOLog("MIDO GPU BHS: mapping failed; no writes\n");
++        return -2;
++    }
++    volatile uint32_t *registers = (volatile uint32_t *)mapped;
++    uint32_t gx = MIDO_GPU_BHS_LOAD(registers + (0x5901c - 0x58000) / 4);
++    uint32_t control = MIDO_GPU_BHS_LOAD(registers + (0x5f01c - 0x58000) / 4);
++    struct mido_gpu_bhs_step steps[MIDO_GPU_BHS_STEPS];
++    if (!mido_gpu_bhs_plan(control, cx_result == 0,
++        (gx & 0x80000003U) == 1U, steps, MIDO_GPU_BHS_STEPS)) {
++        IOLog("MIDO GPU BHS: preflight rejected gx=%08x ctl=%08x; no writes\n", gx, control);
++        return -3;
++    }
++    IOLog("MIDO GPU BHS: begin gx=%08x ctl=%08x steps=%u\n", gx, control, MIDO_GPU_BHS_STEPS);
++    for (unsigned index = 0; index < MIDO_GPU_BHS_STEPS; index++) {
++        volatile uint32_t *target = registers + (steps[index].offset - 0x58000) / 4;
++        MIDO_GPU_BHS_STORE(target, steps[index].value);
++        uint32_t actual = MIDO_GPU_BHS_LOAD(target);
++        IOLog("MIDO GPU BHS: step=%u offset=%x want=%08x got=%08x\n",
++            index, steps[index].offset, steps[index].value, actual);
++        if (actual != steps[index].value) {
++            IOLog("MIDO GPU BHS: stopped on readback mismatch; GX remains unrequested\n");
++            return -4;
++        }
++    }
++    IOLog("MIDO GPU BHS: prepared only; no GDSC/clock/mem-acc/GPU/SMMU/SCM writes\n");
++    return 1;
++}
++
++#endif
