@@ -70,5 +70,9 @@ Control Center0120 code remains unchanged. Full CI/hardware follow-up pending.
 
 Published792ee02bca205b6f1f3ce419ee570e89a60caf28; CI42240304550 attempt1
 never acquired a hosted runner and failed after15m with no compile steps.
-One infrastructure rerun requested (job127977446146); outcome pending.
-No candidate image or reboot before actual successful CI and validation.
+One infrastructure rerun (job127977446146) also failed after15m without
+acquiring a runner or compiling anything. No further blind retries.
+No candidate kernel/image or reboot occurred. Phone verified still in
+recovery. Next requires an available full-build runner, successful CI,
+then strict candidate validation before temporary boot. Local tests and
+ARM64 object checks are not substituted for a complete linked kernel.
