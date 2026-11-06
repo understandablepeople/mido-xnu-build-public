@@ -33,6 +33,36 @@ class WcnssTests(unittest.TestCase):
         (self.directory / "wcnss.mdt").write_bytes(table + b"TESTHASH")
         (self.directory / "wcnss.b00").write_bytes(table)
 
+    def board(self, size=8192):
+        cell = lambda number: struct.pack(">I", number)
+        return {"/soc/qcom,pronto@a21b000": {"qcom,pas-id": cell(6), "memory-region": cell(10)},
+                "/soc/qcom,wcnss-wlan@0a000000": {"qcom,is-pronto-v3": b""},
+                "/reserved-memory": {"#address-cells": cell(2), "#size-cells": cell(2)},
+                "/reserved-memory/wcnss": {"phandle": cell(10), "no-map": b"",
+                                            "reg": struct.pack(">QQ", 0x800000, size)}}
+
+    def test_relocation_plan_preserves_holes_and_bss_without_accessing_device(self):
+        result = FIRMWARE.inspect_board(self.board(), FIRMWARE.inspect_bundle(self.directory))
+        self.assertEqual(result["relocation_delta"], 0x7ff000)
+        self.assertEqual(result["segments"][0]["destination"], 0x800000)
+        self.assertEqual(result["segments"][1]["destination"], 0x801000)
+        self.assertEqual(result["segments"][1]["zero_bytes"], 4096)
+        self.assertFalse(result["hardware_accessed"])
+
+    def test_rejects_short_board_reservation(self):
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            FIRMWARE.inspect_board(self.board(4096), FIRMWARE.inspect_bundle(self.directory))
+
+    def test_rejects_wrong_pas_or_missing_no_map(self):
+        nodes = self.board()
+        nodes["/soc/qcom,pronto@a21b000"]["qcom,pas-id"] = struct.pack(">I", 13)
+        with self.assertRaisesRegex(ValueError, "PAS6"):
+            FIRMWARE.inspect_board(nodes, FIRMWARE.inspect_bundle(self.directory))
+        nodes = self.board()
+        del nodes["/reserved-memory/wcnss"]["no-map"]
+        with self.assertRaisesRegex(ValueError, "no-map"):
+            FIRMWARE.inspect_board(nodes, FIRMWARE.inspect_bundle(self.directory))
+
     def test_zero_fill_and_allocation_are_not_a_loaded_radio(self):
         result = FIRMWARE.inspect_bundle(self.directory)
         self.assertEqual(result["pas_id"], 6)

@@ -58,9 +58,21 @@ Current XNU low arena20000000..5ff00000 does not overlap that reservation,
 but secure-world ownership and proxy clocks/supplies still need bring-up.
 No firmware loading, calibration rewrite or Wi-Fi enable is attempted.
 
+Optional --dtb now resolves the actual Pronto memory-region phandle,
+requires PAS6/Pronto-v3/no-map/64-bit reservation cells, and produces a
+per-segment relocation/copy/zero-fill plan. Rejects reservation overflow
+and alignment breaks. Actual saved board DT passes; no allocation is
+claimed verified on the device. Private report:
+logs/wcnss-board-validated-20261106.json.
+
+Read-only current TWRP dmesg independently reports GFX LDO-mode fuse
+disabled by default, adjusted LDO reference615/675/720mV, and Pronto
+assigned its reserved region/WCNSS probed built-in. This is Linux recovery
+evidence, NOT XNU GPU/Wi-Fi success. No recovery debugfs/MMIO accessed.
+
 ## Validation
 
-60 tests PASS, one NDK module skipped. Includes exact CX request encoding,
+63 tests PASS, one NDK module skipped. Includes exact CX request encoding,
 transport error propagation, serialized opt-in callsite checks, full patch
 replay, stale RPM reply rejection, synthetic WCNSS malformed-input tests
 and sanitizer-tested gesture aggregation. MidoInput.cpp/MidoHID.cpp ARM64
