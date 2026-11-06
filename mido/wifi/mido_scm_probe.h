@@ -33,11 +33,11 @@ mido_scm_invoke(struct mido_scm_registers *state)
 #endif
 
 static int64_t
-mido_scm_available(uint32_t convention, uint32_t query, uint64_t *available)
+mido_scm_query(uint32_t function, uint32_t argument, uint64_t *available)
 {
     *available = 0;
     for (unsigned busy = 0; busy < 4; busy++) {
-        struct mido_scm_registers state = {{0x82000601U | convention, 1, query, 0, 0, 0, 0}};
+        struct mido_scm_registers state = {{function, 1, argument, 0, 0, 0, 0}};
         for (unsigned interrupted = 0; interrupted < 8; interrupted++) {
             MIDO_SCM_INVOKE(&state);
             int64_t result = (int32_t)state.values[0];
@@ -59,6 +59,12 @@ mido_scm_available(uint32_t convention, uint32_t query, uint64_t *available)
         IODelay(10);
     }
     return -12;
+}
+
+static int64_t
+mido_scm_available(uint32_t convention, uint32_t query, uint64_t *available)
+{
+    return mido_scm_query(0x82000601U | convention, query, available);
 }
 
 static void
@@ -97,10 +103,21 @@ mido_scm_probe(void)
         IOLog("MIDO SCM: PAS command=%u availability result=%lld available=%llu smc64=%u\n",
             commands[index], result, available, convention != 0);
         if (result != 0) {
-            break;
+            return;
+        }
+        if (commands[index] == 7 && available != 0) {
+            static const uint32_t peripherals[] = {6, 13};
+            for (unsigned peripheral : peripherals) {
+                result = mido_scm_query(0x02000207U | convention, peripheral, &available);
+                IOLog("MIDO SCM: PAS supported peripheral=%u result=%lld supported=%llu smc64=%u\n",
+                    peripheral, result, available, convention != 0);
+                if (result != 0) {
+                    return;
+                }
+            }
         }
     }
-    IOLog("MIDO SCM: INFO queries only; no PAS init/mem/auth/reset/shutdown or firmware writes\n");
+    IOLog("MIDO SCM: INFO/PAS supported queries only; no init/mem/auth/reset/shutdown or firmware writes\n");
 }
 
 #endif

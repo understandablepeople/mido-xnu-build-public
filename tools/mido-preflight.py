@@ -41,7 +41,7 @@ def arm64_command(distribution):
         "root=" + repr(linux_root),
         "base=pathlib.Path(root)",
         "scratch=base/'research/display-buildtree/xnu/iokit/Kernel/arm'",
-        "for folder,names in [('input',['MidoInput.cpp']),('gpu',['mido_gpu_cx_power.h','mido_gpu_gx_power.h','mido_gpu_bhs.h','mido_gpu_bhs_runtime.h']),('wifi',['mido_wcnss_audit.h','mido_wcnss_smem.h','mido_scm_probe.h'])]:",
+        "for folder,names in [('input',['MidoInput.cpp']),('gpu',['mido_gpu_cx_power.h','mido_gpu_gx_power.h','mido_gpu_clocks.h','mido_gpu_status.h','mido_gpu_bhs.h','mido_gpu_bhs_runtime.h']),('wifi',['mido_wcnss_audit.h','mido_wcnss_smem.h','mido_scm_probe.h','mido_wcnss_clocks.h'])]:",
         " for name in names:",
         "  assert (base/'mido'/folder/name).read_bytes()==(scratch/name).read_bytes(), name+' scratch differs'",
         "exec_source=(base/'research/display-buildtree/xnu/bsd/kern/kern_exec.c').read_text()",
@@ -74,6 +74,7 @@ def main():
         ("arm64-objects", arm64_command(args.distribution)),
         ("gpu-firmware", [sys.executable, "-I", "tools/mido_gpu_firmware.py", "research/mido-firmware"]),
         ("wifi-firmware-board", [sys.executable, "-I", "tools/mido_wcnss_firmware.py", "research/mido-firmware", "--dtb", "logs/twrp-live-20261104.dtb", "--power-plan"]),
+        ("combined-bringup-plan", [sys.executable, "-I", "tools/mido_bringup_plan.py", "research/mido-firmware", "--dtb", "logs/twrp-live-20261104.dtb", "--payload", "out/gx-scm-0124-8cpu/payload.bin"]),
         ("repository-integrity", native + [linux_root + "/tools/validate-repo.py"]),
     ]
     report = {"created_utc": datetime.now(timezone.utc).isoformat(), "checks": [],

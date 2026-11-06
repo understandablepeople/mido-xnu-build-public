@@ -1,5 +1,25 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06: combined0125 prepared for one CI and RAM boot
+
+User authorized scoped source commit/push after maximum compatible checks.
+Predecessor0124 hardware: CX/GX POWER_ON, BHSack, coarse clocks blocker04;
+SCM64 INFO/PAS handler availability verified; no acceleration/network yet.
+Fresh combined0125 adds six branch enables (including BIMC_GFX59034),
+PAS_SUPPORTED6/13, gated four-register GPU status/VBIF read, independent
+Wi-Fi crypto/GPLL/vote read-only snapshot beforeGPU. OwnDT bindings checked.
+Host plan validates firmware structures, packaged memory nonoverlap and
+shared rail voltage floors preservingGPUCX192; no firmware/rail writes.
+Working8CPU/touch/sleep/CC untouched. See mido/notes/branches-pas-0125.md
+and runtime-0124.md. Preflight180217Z:86tests(oneNDKskip),4ARM64objects,
+firmware/ownDT/combinedplan/recoveryreads PASS. Extra orderingtest added;
+final native rerun pending. Knownoldvalidator12gaps/3CRLFscripts remain.
+No0125CI/image/boot yet. Only temporary verifiedlk2ndRAMboot afterCI and
+checksums; noflash/rootfs changes. GPU MMIO onlyafterallprerequisites and
+entrymarker; hardwarebusstall cannotbe timedout insoftware. Two boots is
+batching goal, NOT driver completion promise. Keep private logs/firmware,
+unrelated shim/build.sh/dyldtools and other accumulatedNOTES edits unstaged.
+
 ## MIDO active 2026-11-04: 0108 built, three RAM-boot images ready, NOT booted
 
 CI 41889781357 (rerun after GitHub macOS runner capacity cancel) PASSED.

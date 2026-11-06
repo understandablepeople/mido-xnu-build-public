@@ -1,0 +1,285 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -25,6 +25,9 @@
+
+ extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
++#include "mido_gpu_clocks.h"
++#include "mido_gpu_status.h"
++#include "mido_wcnss_clocks.h"
+ extern "C" void mido_hid_key(int, int);
+ extern "C" void mido_hid_touch(int, int, int, int);
+ extern "C" int mido_hid_ready(void);
+@@ -215,6 +218,12 @@
+         }
+         ok = ok && result == 0;
+     }
++    mido_wcnss_audit(&rpm);
++    mido_scm_probe();
++    int wifi_clocks_result = mido_wcnss_clocks();
++    if (wifi_clocks_result != 0) {
++        IOLog("MIDO WIFI CLOCKS: result=%d\n", wifi_clocks_result);
++    }
+     unsigned gpu_cx = 0;
+     PE_parse_boot_argn("midogpucx", &gpu_cx, sizeof(gpu_cx));
+     if (gpu_cx == 1 && ok) {
+@@ -238,11 +247,18 @@
+             IOLog("MIDO GPU GX: result=%d; snapshot after request\n", gx_result);
+             mido_gpu_audit();
+         }
++        int clocks_result = mido_gpu_clocks(gx_result);
++        if (clocks_result != 0) {
++            IOLog("MIDO GPU CLOCKS: result=%d; snapshot after request\n", clocks_result);
++            mido_gpu_audit();
++        }
++        int status_result = mido_gpu_status(clocks_result);
++        if (status_result != 0) {
++            IOLog("MIDO GPU STATUS: result=%d\n", status_result);
++        }
+     } else if (gpu_cx) {
+         IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
+     }
+-    mido_wcnss_audit(&rpm);
+-    mido_scm_probe();
+     IOSleep(50);
+     return ok;
+ }
+--- a/iokit/Kernel/arm/mido_scm_probe.h
++++ b/iokit/Kernel/arm/mido_scm_probe.h
+@@ -33,11 +33,11 @@
+ #endif
+
+ static int64_t
+-mido_scm_available(uint32_t convention, uint32_t query, uint64_t *available)
++mido_scm_query(uint32_t function, uint32_t argument, uint64_t *available)
+ {
+     *available = 0;
+     for (unsigned busy = 0; busy < 4; busy++) {
+-        struct mido_scm_registers state = {{0x82000601U | convention, 1, query, 0, 0, 0, 0}};
++        struct mido_scm_registers state = {{function, 1, argument, 0, 0, 0, 0}};
+         for (unsigned interrupted = 0; interrupted < 8; interrupted++) {
+             MIDO_SCM_INVOKE(&state);
+             int64_t result = (int32_t)state.values[0];
+@@ -59,6 +59,12 @@
+         IODelay(10);
+     }
+     return -12;
++}
++
++static int64_t
++mido_scm_available(uint32_t convention, uint32_t query, uint64_t *available)
++{
++    return mido_scm_query(0x82000601U | convention, query, available);
+ }
+
+ static void
+@@ -97,10 +103,21 @@
+         IOLog("MIDO SCM: PAS command=%u availability result=%lld available=%llu smc64=%u\n",
+             commands[index], result, available, convention != 0);
+         if (result != 0) {
+-            break;
++            return;
++        }
++        if (commands[index] == 7 && available != 0) {
++            static const uint32_t peripherals[] = {6, 13};
++            for (unsigned peripheral : peripherals) {
++                result = mido_scm_query(0x02000207U | convention, peripheral, &available);
++                IOLog("MIDO SCM: PAS supported peripheral=%u result=%lld supported=%llu smc64=%u\n",
++                    peripheral, result, available, convention != 0);
++                if (result != 0) {
++                    return;
++                }
++            }
+         }
+     }
+-    IOLog("MIDO SCM: INFO queries only; no PAS init/mem/auth/reset/shutdown or firmware writes\n");
++    IOLog("MIDO SCM: INFO/PAS supported queries only; no init/mem/auth/reset/shutdown or firmware writes\n");
+ }
+
+ #endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_clocks.h
+@@ -0,0 +1,78 @@
++#ifndef MIDO_GPU_CLOCKS_H
++#define MIDO_GPU_CLOCKS_H
++
++static int
++mido_gpu_clocks_run(volatile uint32_t *registers)
++{
++    static const unsigned offsets[] = {0x59028, 0x59030, 0x59034, 0x59040, 0x59044, 0x59020};
++    uint32_t before[6];
++    uint32_t root = MIDO_GPU_GX_LOAD(registers + 0x1000 / 4);
++    uint32_t config = MIDO_GPU_GX_LOAD(registers + 0x1004 / 4);
++    uint32_t cx = MIDO_GPU_GX_LOAD(registers + 0x104c / 4);
++    uint32_t gx = MIDO_GPU_GX_LOAD(registers + 0x101c / 4);
++    uint32_t clamp = MIDO_GPU_GX_LOAD(registers + 0x300c / 4);
++    uint32_t supply = MIDO_GPU_GX_LOAD(registers + 0x7028 / 4);
++    if ((root & 0x80000003U) != 2U || config != 0 ||
++        (cx & 0x80000001U) != 0x80000000U ||
++        (gx & 0x80000001U) != 0x80000000U || (clamp & 1U) ||
++        (supply & 3U) != 3U) {
++        IOLog("MIDO GPU CLOCKS: unsafe power/root state; no writes\n");
++        return -3;
++    }
++    for (unsigned index = 0; index < 6; index++) {
++        before[index] = MIDO_GPU_GX_LOAD(registers + (offsets[index] - 0x58000) / 4);
++        if ((before[index] & 0x80000003U) != 0x80000000U) {
++            IOLog("MIDO GPU CLOCKS: branch=%05x unexpected=%08x; no writes\n",
++                offsets[index], before[index]);
++            return -4;
++        }
++    }
++    for (unsigned index = 0; index < 6; index++) {
++        volatile uint32_t *branch = registers + (offsets[index] - 0x58000) / 4;
++        uint32_t requested = before[index] | 1U;
++        MIDO_GPU_GX_STORE(branch, requested);
++        bool ready = false;
++        for (unsigned attempt = 0; attempt < 1000; attempt++) {
++            uint32_t actual = MIDO_GPU_GX_LOAD(branch);
++            if ((actual & 0x7fffffffU) != (requested & 0x7fffffffU)) {
++                IOLog("MIDO GPU CLOCKS: branch=%05x mismatch=%08x; stopped\n", offsets[index], actual);
++                return -5;
++            }
++            if (!(actual & 0x80000000U)) {
++                IOLog("MIDO GPU CLOCKS: branch=%05x on=%08x polls=%u\n", offsets[index], actual, attempt + 1);
++                ready = true;
++                break;
++            }
++            IODelay(1);
++        }
++        if (!ready) {
++            IOLog("MIDO GPU CLOCKS: branch=%05x timeout; no later requests\n", offsets[index]);
++            return -6;
++        }
++    }
++    IOLog("MIDO GPU CLOCKS: six branches on, XO only; GPU/SMMU/CP untouched, no acceleration\n");
++    return 1;
++}
++
++static int
++mido_gpu_clocks(int gx_result)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midogpuclocks", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1 || gx_result != 1) {
++        IOLog("MIDO GPU CLOCKS: skipped mode=%u gx=%d\n", mode, gx_result);
++        return -1;
++    }
++    vm_offset_t mapped = ml_io_map(0x01858000, 0x8000);
++    if (!mapped) {
++        return -2;
++    }
++    int result = mido_gpu_clocks_run((volatile uint32_t *)mapped);
++    ml_io_unmap(mapped, 0x8000);
++    return result;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -0,0 +1,54 @@
++#ifndef MIDO_GPU_STATUS_H
++#define MIDO_GPU_STATUS_H
++
++static int
++mido_gpu_status(int clocks_result)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midogpustatus", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1 || clocks_result != 1) {
++        IOLog("MIDO GPU STATUS: skipped mode=%u clocks=%d; GPU not accessed\n", mode, clocks_result);
++        return -1;
++    }
++    vm_offset_t clock_mapping = ml_io_map(0x01858000, 0x8000);
++    if (!clock_mapping) {
++        return -2;
++    }
++    volatile uint32_t *clock = (volatile uint32_t *)clock_mapping;
++    bool ready = (MIDO_GPU_GX_LOAD(clock + 0x1000 / 4) & 0x80000003U) == 2U &&
++        MIDO_GPU_GX_LOAD(clock + 0x1004 / 4) == 0 &&
++        (MIDO_GPU_GX_LOAD(clock + 0x104c / 4) & 0x80000001U) == 0x80000000U &&
++        (MIDO_GPU_GX_LOAD(clock + 0x101c / 4) & 0x80000001U) == 0x80000000U &&
++        !(MIDO_GPU_GX_LOAD(clock + 0x300c / 4) & 1U) &&
++        (MIDO_GPU_GX_LOAD(clock + 0x7028 / 4) & 3U) == 3U;
++    static const unsigned branches[] = {0x1028, 0x1030, 0x1034, 0x1040, 0x1044, 0x1020};
++    for (unsigned offset : branches) {
++        if ((MIDO_GPU_GX_LOAD(clock + offset / 4) & 0x80000003U) != 1U) {
++            ready = false;
++        }
++    }
++    ml_io_unmap(clock_mapping, 0x8000);
++    if (!ready) {
++        IOLog("MIDO GPU STATUS: power/clocks changed; GPU not accessed\n");
++        return -3;
++    }
++    vm_offset_t mapping = ml_io_map(0x01c00000, 0x10000);
++    if (!mapping) {
++        return -4;
++    }
++    volatile uint32_t *gpu = (volatile uint32_t *)mapping;
++    IOLog("MIDO GPU STATUS: begin four read-only A5xx registers; no GPU writes\n");
++    uint32_t status = MIDO_GPU_GX_LOAD(gpu + 0x4f5);
++    uint32_t status3 = MIDO_GPU_GX_LOAD(gpu + 0x530);
++    uint32_t ahb_error = MIDO_GPU_GX_LOAD(gpu + 0x4f4);
++    uint32_t vbif = MIDO_GPU_GX_LOAD(gpu + 0x3000);
++    ml_io_unmap(mapping, 0x10000);
++    IOLog("MIDO GPU STATUS: rbbm=%08x status3=%08x ahb-error=%08x vbif-version=%08x; no CP/SMMU/firmware or acceleration\n",
++        status, status3, ahb_error, vbif);
++    return vbif != 0 && vbif != 0xffffffffU ? 1 : -5;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_wcnss_clocks.h
+@@ -0,0 +1,45 @@
++#ifndef MIDO_WCNSS_CLOCKS_H
++#define MIDO_WCNSS_CLOCKS_H
++
++static int
++mido_wcnss_clocks(void)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midowificlocks", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1) {
++        IOLog("MIDO WIFI CLOCKS: unsupported mode=%u; no hardware access\n", mode);
++        return -1;
++    }
++    vm_offset_t crypto = ml_io_map(0x01816000, 0x1000);
++    vm_offset_t votes = ml_io_map(0x01845000, 0x1000);
++    vm_offset_t pll = ml_io_map(0x01821000, 0x1000);
++    if (!crypto || !votes || !pll) {
++        if (crypto) ml_io_unmap(crypto, 0x1000);
++        if (votes) ml_io_unmap(votes, 0x1000);
++        if (pll) ml_io_unmap(pll, 0x1000);
++        return -2;
++    }
++    volatile uint32_t *registers = (volatile uint32_t *)crypto;
++    uint32_t command = MIDO_GPU_GX_LOAD(registers + 4 / 4);
++    uint32_t config = MIDO_GPU_GX_LOAD(registers + 8 / 4);
++    uint32_t core = MIDO_GPU_GX_LOAD(registers + 0x1c / 4);
++    uint32_t bus = MIDO_GPU_GX_LOAD(registers + 0x20 / 4);
++    uint32_t iface = MIDO_GPU_GX_LOAD(registers + 0x24 / 4);
++    uint32_t pll_vote = MIDO_GPU_GX_LOAD((volatile uint32_t *)votes);
++    uint32_t branch_vote = MIDO_GPU_GX_LOAD((volatile uint32_t *)(votes + 4));
++    uint32_t pll_mode = MIDO_GPU_GX_LOAD((volatile uint32_t *)pll);
++    ml_io_unmap(crypto, 0x1000);
++    ml_io_unmap(votes, 0x1000);
++    ml_io_unmap(pll, 0x1000);
++    IOLog("MIDO WIFI CLOCKS: crypto-root=%08x cfg=%08x core=%08x bus=%08x iface=%08x\n",
++        command, config, core, bus, iface);
++    IOLog("MIDO WIFI CLOCKS: gpll0=%08x pll-vote=%08x branch-vote=%08x; target80MHz not programmed\n",
++        pll_mode, pll_vote, branch_vote);
++    IOLog("MIDO WIFI CLOCKS: GCC read-only; XO RPM vote/supplies/PAS firmware/radio not requested\n");
++    return 1;
++}
++
++#endif

@@ -25,6 +25,9 @@
 
 extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
+#include "mido_gpu_clocks.h"
+#include "mido_gpu_status.h"
+#include "mido_wcnss_clocks.h"
 extern "C" void mido_hid_key(int, int);
 extern "C" void mido_hid_touch(int, int, int, int);
 extern "C" int mido_hid_ready(void);
@@ -215,6 +218,12 @@ MidoInput::touchRails(void)
         }
         ok = ok && result == 0;
     }
+    mido_wcnss_audit(&rpm);
+    mido_scm_probe();
+    int wifi_clocks_result = mido_wcnss_clocks();
+    if (wifi_clocks_result != 0) {
+        IOLog("MIDO WIFI CLOCKS: result=%d\n", wifi_clocks_result);
+    }
     unsigned gpu_cx = 0;
     PE_parse_boot_argn("midogpucx", &gpu_cx, sizeof(gpu_cx));
     if (gpu_cx == 1 && ok) {
@@ -238,11 +247,18 @@ MidoInput::touchRails(void)
             IOLog("MIDO GPU GX: result=%d; snapshot after request\n", gx_result);
             mido_gpu_audit();
         }
+        int clocks_result = mido_gpu_clocks(gx_result);
+        if (clocks_result != 0) {
+            IOLog("MIDO GPU CLOCKS: result=%d; snapshot after request\n", clocks_result);
+            mido_gpu_audit();
+        }
+        int status_result = mido_gpu_status(clocks_result);
+        if (status_result != 0) {
+            IOLog("MIDO GPU STATUS: result=%d\n", status_result);
+        }
     } else if (gpu_cx) {
         IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
     }
-    mido_wcnss_audit(&rpm);
-    mido_scm_probe();
     IOSleep(50);
     return ok;
 }
