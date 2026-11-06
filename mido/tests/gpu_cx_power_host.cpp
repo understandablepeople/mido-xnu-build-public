@@ -7,6 +7,7 @@
 typedef uintptr_t vm_offset_t;
 static uint32_t registers[0x8000 / 4];
 static unsigned mode, mappings, writes, delays, reads, ready_after;
+static uint32_t status_bits, mismatch_bits;
 static int mismatch, failed_mapping;
 static bool PE_parse_boot_argn(const char *name, void *output, int size)
 {
@@ -27,7 +28,8 @@ static uint32_t load(volatile uint32_t *target)
     assert(target >= registers && target < registers + sizeof(registers) / 4);
     if (target == registers + (0x5904c - 0x58000) / 4 && writes) {
         reads++;
-        return *target | (reads >= ready_after ? 0x80000000U : 0U) | (mismatch ? 2U : 0U);
+        return (*target | status_bits | (reads >= ready_after ? 0x80000000U : 0U)) ^
+            (mismatch ? mismatch_bits : 0U);
     }
     return *target;
 }
@@ -51,6 +53,8 @@ static void reset(unsigned selected)
     mappings = writes = delays = reads = 0;
     ready_after = 1;
     mismatch = failed_mapping = 0;
+    status_bits = 0;
+    mismatch_bits = 2U;
 }
 int main()
 {
@@ -77,7 +81,18 @@ int main()
     ready_after = 1001;
     assert(mido_gpu_cx_power(0, 1) == -5 && writes == 1 && delays == 1001);
     reset(1);
-    mismatch = 1;
-    assert(mido_gpu_cx_power(0, 1) == -4 && writes == 1 && reads == 1);
+    status_bits = 0x20000000U;
+    assert(mido_gpu_cx_power(0, 1) == 1 && writes == 1 && reads == 1);
+    reset(1);
+    status_bits = 0x20000000U;
+    ready_after = 1001;
+    assert(mido_gpu_cx_power(0, 1) == -5 && writes == 1 && delays == 1001);
+    for (uint32_t changed : {1U, 2U, 4U, 0x1000U, 0x10000U, 0x100000U}) {
+        reset(1);
+        status_bits = 0x20000000U;
+        mismatch = 1;
+        mismatch_bits = changed;
+        assert(mido_gpu_cx_power(0, 1) == -4 && writes == 1 && reads == 1);
+    }
     return 0;
 }

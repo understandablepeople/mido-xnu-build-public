@@ -22,7 +22,8 @@ def kernel_source(root, name, base):
                       "0115-mido-serialized-gpu-cx-vote.patch",
                       "0117-mido-rpm-kvp-ack-format.patch",
                       "0118-mido-gfx-bhs-preparation.patch",
-                      "0121-mido-cx-domain-and-wcnss-discovery.patch"):
+                      "0121-mido-cx-domain-and-wcnss-discovery.patch",
+                      "0123-mido-cx-writable-readback.patch"):
             if later <= base:
                 continue
             subprocess.run(["git", "apply", "--include=" + relative,

@@ -39,7 +39,8 @@ mido_gpu_cx_power(int cx_result, int bhs_result)
     IODelay(1);
     for (unsigned attempt = 0; attempt < 1000; attempt++) {
         uint32_t actual = MIDO_GPU_CX_LOAD(cx);
-        if ((actual & 0x7fffffffU) != requested) {
+        const uint32_t writable = 0x00fff007U;
+        if ((actual & writable) != (requested & writable)) {
             IOLog("MIDO GPU CX POWER: readback mismatch before=%08x want=%08x got=%08x\n", before, requested, actual);
             return -4;
         }
