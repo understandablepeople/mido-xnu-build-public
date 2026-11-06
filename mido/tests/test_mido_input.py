@@ -92,7 +92,7 @@ class HardwareInputTests(unittest.TestCase):
         self.assertEqual((status, data, consumed), (0, bytes(range(14)), 16))
 
     def test_errors_are_bounded_and_preserve_output(self):
-        for mode, expected in [(1, -2), (2, -3), (3, -7), (4, -7), (5, -6), (6, -6), (7, -6)]:
+        for mode, expected in [(1, -2), (2, -3), (3, -7), (4, -7), (5, -6), (6, -6), (7, -6), (9, -9)]:
             status, data, command, writes, delays, consumed = self.transfer(mode=mode)
             self.assertEqual(status, expected)
             self.assertEqual(data, b'Z' * 63)

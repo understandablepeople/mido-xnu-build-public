@@ -33,7 +33,10 @@ mock_read(void *context, uint32_t offset)
         if (mock->mode == 5 || (mock->mode == 6 && mock->consumed >= 16)) {
             return 0;
         }
-        return mock->consumed < mock->input_length ? (mock->mode == 8 ? 0x2020U : 0x2300U) : 0x800U;
+        if (mock->mode == 9 && mock->consumed >= 16) {
+            return 0x2000U;
+        }
+        return mock->consumed < mock->input_length ? (mock->mode == 8 ? 0x2020U : 0x2320U) : 0x800U;
     }
     if (offset == 0x218) {
         uint32_t word = 0;

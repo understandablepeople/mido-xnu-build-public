@@ -1,0 +1,33 @@
+--- a/iokit/Kernel/arm/mido_ft5435.h
++++ b/iokit/Kernel/arm/mido_ft5435.h
+@@ -49,7 +49,9 @@
+ mido_ft_decode(const uint8_t *report, size_t length, struct mido_ft_frame *frame)
+ {
+     if (report == NULL || frame == NULL || length != MIDO_FT_REPORT_BYTES ||
+-        (report[0] & 0x70U) != 0 || (report[2] & 0xfU) > MIDO_FT_CONTACTS) {
++        ((report[0] & 0x70U) != 0 &&
++        !(report[0] == 0xff && report[1] == 0 && (report[2] & 0xf0U) == 0)) ||
++        (report[2] & 0xfU) > MIDO_FT_CONTACTS) {
+         return 0;
+     }
+     struct mido_ft_frame next = {0};
+--- a/iokit/Kernel/arm/mido_qup_v2.h
++++ b/iokit/Kernel/arm/mido_qup_v2.h
+@@ -117,10 +117,17 @@
+                 available = block;
+             }
+             for (unsigned offset = 0; offset < available; offset += 4) {
++                if (!mido_qup_wait(io, 0x18, 0x20, 0x20, 2000)) {
++                    result = -9;
++                    break;
++                }
+                 uint32_t word = io->read(io->context, 0x218);
+                 for (unsigned byte = 0; byte < 4 && offset + byte < available; byte++) {
+                     received[position++] = (uint8_t)(word >> (8 * byte));
+                 }
++            }
++            if (result == -9) {
++                break;
+             }
+         }
+         if ((operational & 0x100) != 0) {

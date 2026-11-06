@@ -78,6 +78,18 @@ class FT5435Tests(unittest.TestCase):
         self.assertEqual((result, frame.count, frame.active), (1, 0, 0))
 
     def test_virtual_keys(self):
+        report = self.report([(0, 2, 1075, 1858)])
+        report[0] = 0xff
+        result, frame = self.decode(report)
+        self.assertEqual((result, frame.active, frame.contacts[0].x, frame.contacts[0].y),
+                         (1, 1, 1075, 1858))
+        report = self.report(active=0)
+        report[0] = 0xff
+        self.assertEqual(self.decode(report)[0], 1)
+        self.assertEqual(self.decode(bytearray([255] * 63))[0], 0)
+        report[1] = 1
+        self.assertEqual(self.decode(report)[0], 0)
+
         for xpos, kind in [(500, 1), (200, 2), (800, 3), (501, 4)]:
             result, frame = self.decode(self.report([(0, 2, xpos, 2040)]))
             self.assertEqual((result, frame.contacts[0].kind), (1, kind))

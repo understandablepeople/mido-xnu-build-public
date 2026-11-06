@@ -49,7 +49,9 @@ static inline int
 mido_ft_decode(const uint8_t *report, size_t length, struct mido_ft_frame *frame)
 {
     if (report == NULL || frame == NULL || length != MIDO_FT_REPORT_BYTES ||
-        (report[0] & 0x70U) != 0 || (report[2] & 0xfU) > MIDO_FT_CONTACTS) {
+        ((report[0] & 0x70U) != 0 &&
+        !(report[0] == 0xff && report[1] == 0 && (report[2] & 0xf0U) == 0)) ||
+        (report[2] & 0xfU) > MIDO_FT_CONTACTS) {
         return 0;
     }
     struct mido_ft_frame next = {0};
