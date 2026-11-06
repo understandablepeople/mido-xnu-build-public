@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -9,6 +11,31 @@ RELATIVE = "iokit/Kernel/arm/hid/MidoHID.cpp"
 
 
 class HIDMetadataTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "run native trace tests in WSL")
+    def test_trace_tracks_gesture_and_saturates_without_changing_coordinates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "trace"
+            subprocess.run([shutil.which("cc"), "-std=c11", "-Wall", "-Wextra",
+                            "-Werror", "-fsanitize=address,undefined",
+                            "-I", str(ROOT / "mido/input"),
+                            str(ROOT / "mido/tests/touch_trace_host.c"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_trace_patch_replays_and_is_disabled_and_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / RELATIVE
+            target.parent.mkdir(parents=True)
+            target.write_text(self.after)
+            subprocess.run(["git", "apply", str(ROOT / "xnu/patches/0116-mido-bounded-touch-gesture-trace.patch")],
+                           cwd=directory, capture_output=True, check=True)
+            source = target.read_text()
+            self.assertIn("fTraceMode = 0;", source)
+            self.assertIn("fTraceMode == 1 && fTraceReports < 64", source)
+            self.assertIn("if (was && !down)", source)
+            self.assertEqual((target.parent.parent / "mido_touch_trace.h").read_text(),
+                             (ROOT / "mido/input/mido_touch_trace.h").read_text())
+            self.assertEqual(source.count("dispatchEvent(collection);"), 1)
+
     @classmethod
     def setUpClass(cls):
         base = (ROOT / "xnu/patches/0058-mido-hid-event-services.patch").read_text(encoding="utf-8", errors="replace")

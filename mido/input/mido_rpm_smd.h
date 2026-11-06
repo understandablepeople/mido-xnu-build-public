@@ -214,7 +214,8 @@ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
     io->ack[0] = response[5];
     io->ack[1] = response[6];
     /* Success ack carries only the msg_id pair (lk2nd ACK_MSG_LENGTH). */
-    return response[5] == MIDO_RPM_REQ_MAGIC && response[6] == 12 ? 0 : -9;
+    return length == 12 && response[5] == MIDO_RPM_REQ_MAGIC &&
+        response[6] == 12 && response[7] == msg_id ? 0 : -9;
 }
 
 #endif

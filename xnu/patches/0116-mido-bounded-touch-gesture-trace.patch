@@ -1,0 +1,95 @@
+--- a/iokit/Kernel/arm/hid/MidoHID.cpp
++++ b/iokit/Kernel/arm/hid/MidoHID.cpp
+@@ -350,6 +350,7 @@
+  * absolute digitizers.
+  */
+ #define MIDO_TOUCH_FINGERS 10
++#include "../mido_touch_trace.h"
+ class MidoHIDTouch : public IOHIDEventService {
+ 	OSDeclareDefaultStructors(MidoHIDTouch);
+ public:
+@@ -364,6 +365,8 @@
+ 	bool fDown[MIDO_TOUCH_FINGERS];
+ 	IOFixed fX[MIDO_TOUCH_FINGERS];
+ 	IOFixed fY[MIDO_TOUCH_FINGERS];
++	struct mido_touch_trace fTrace[MIDO_TOUCH_FINGERS];
++	unsigned fTraceMode, fTraceReports;
+ };
+ OSDefineMetaClassAndStructors(MidoHIDTouch, IOHIDEventService);
+ 
+@@ -426,6 +429,9 @@
+ bool
+ MidoHIDTouch::start(IOService *provider)
+ {
++	fTraceMode = 0;
++	fTraceReports = 0;
++	PE_parse_boot_argn("midohidtrace", &fTraceMode, sizeof(fTraceMode));
+ 	fLock = IOLockAlloc();
+ 	if (!fLock || !IOHIDEventService::start(provider)) {
+ 		return false;
+@@ -516,12 +522,27 @@
+ 	collection->setIntegerValue(kIOHIDEventFieldDigitizerTouch, any);
+ 	collection->setIntegerValue(kIOHIDEventFieldDigitizerEventMask, cmask);
+ 	collection->setIntegerValue(kIOHIDEventFieldDigitizerButtonMask, any ? 1 : 0);
++	struct mido_touch_trace trace = {};
++	bool report = false;
++	if (fTraceMode == 1 && fTraceReports < 64) {
++		mido_touch_trace_update(&fTrace[finger], was, down, x, y);
++		if (was && !down) {
++			trace = fTrace[finger];
++			fTraceReports++;
++			report = true;
++		}
++	}
+ 	IOLockUnlock(fLock);
+ 
+ 	if (was != down) {
+ 		IOLog("MIDO HID: touch %d %s at %d,%d\n", finger, down ? "down" : "up", x, y);
+ 	}
+ 	dispatchEvent(collection);
++	if (report) {
++		IOLog("MIDO HID TRACE: slot=%d events=%u start=%d,%d end=%d,%d y=%d..%d mask=0x%x\n",
++		    finger, trace.events, trace.start_x, trace.start_y, trace.end_x, trace.end_y,
++		    trace.min_y, trace.max_y, cmask);
++	}
+ 	collection->release();
+ }
+ 
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_touch_trace.h
+@@ -0,0 +1,35 @@
++#ifndef MIDO_TOUCH_TRACE_H
++#define MIDO_TOUCH_TRACE_H
++
++#include <stdint.h>
++
++struct mido_touch_trace {
++    uint32_t events;
++    int32_t start_x, start_y, end_x, end_y, min_y, max_y;
++};
++
++static inline void
++mido_touch_trace_update(struct mido_touch_trace *trace, int was_down,
++    int down, int32_t x, int32_t y)
++{
++    if (!was_down && down) {
++        trace->events = 0;
++        trace->start_x = x;
++        trace->start_y = y;
++        trace->min_y = y;
++        trace->max_y = y;
++    }
++    if (trace->events != UINT32_MAX) {
++        trace->events++;
++    }
++    trace->end_x = x;
++    trace->end_y = y;
++    if (y < trace->min_y) {
++        trace->min_y = y;
++    }
++    if (y > trace->max_y) {
++        trace->max_y = y;
++    }
++}
++
++#endif

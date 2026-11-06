@@ -15,6 +15,8 @@
 #include "mido_qup_v2.h"
 #include "mido_rpm_smd.h"
 #include "mido_input_state.h"
+#include "mido_gpu_cx.h"
+#include "mido_gpu_audit.h"
 
 extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
@@ -207,6 +209,17 @@ MidoInput::touchRails(void)
             }
         }
         ok = ok && result == 0;
+    }
+    unsigned gpu_cx = 0;
+    PE_parse_boot_argn("midogpucx", &gpu_cx, sizeof(gpu_cx));
+    if (gpu_cx == 1 && ok) {
+        int result = mido_gpu_cx_vote(&rpm);
+        IOLog("MIDO GPU CX: smpa2 level=%u result=%d ack=0x%x,0x%x\n",
+            MIDO_GPU_CX_INITIAL_LEVEL, result, rpm.ack[0], rpm.ack[1]);
+        IOLog("MIDO GPU CX: audit after vote; no GDSC/GFX-LDO/GPU/SMMU writes\n");
+        mido_gpu_audit();
+    } else if (gpu_cx) {
+        IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
     }
     IOSleep(50);
     return ok;

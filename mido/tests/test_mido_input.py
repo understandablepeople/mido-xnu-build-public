@@ -55,9 +55,8 @@ class HardwareInputTests(unittest.TestCase):
         self.assertIn('rpm_host ok', subprocess.run([str(binary)], check=True, capture_output=True, text=True).stdout)
 
     def test_patch_embeds_rpm_header(self):
-        patch = (self.root.parent / 'xnu/patches/0109-mido-touch-rpm-rails.patch').read_text()
-        section = patch.split('+++ b/iokit/Kernel/arm/mido_rpm_smd.h' + chr(10), 1)[1].split(chr(10), 1)[1]
-        text = chr(10).join(line[1:] for line in section.splitlines()) + chr(10)
+        text = kernel_source(self.root.parent, 'mido_rpm_smd.h',
+                             '0109-mido-touch-rpm-rails.patch')
         self.assertEqual(text, (self.root / 'input/mido_rpm_smd.h').read_text())
 
     def test_patch_embeds_exact_tested_sources(self):

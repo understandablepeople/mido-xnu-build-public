@@ -18,7 +18,10 @@ def kernel_source(root, name, base):
                       "0109-mido-touch-rpm-rails.patch",
                       "0110-mido-touch-block-read-backlight-packed-scanout.patch",
                       "0111-mido-wled-module-off-and-touch-report-evidence.patch",
-                      "0112-mido-ft5435-observed-header-and-fifo-guard.patch"):
+                      "0112-mido-ft5435-observed-header-and-fifo-guard.patch",
+                      "0115-mido-serialized-gpu-cx-vote.patch"):
+            if later <= base:
+                continue
             subprocess.run(["git", "apply", "--include=" + relative,
                             str(root / "xnu/patches" / later)],
                            cwd=directory, check=True, capture_output=True)

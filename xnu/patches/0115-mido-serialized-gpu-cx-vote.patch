@@ -1,0 +1,62 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -15,6 +15,8 @@
+ #include "mido_qup_v2.h"
+ #include "mido_rpm_smd.h"
+ #include "mido_input_state.h"
++#include "mido_gpu_cx.h"
++#include "mido_gpu_audit.h"
+ 
+ extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
+@@ -208,6 +210,17 @@ MidoInput::touchRails(void)
+         }
+         ok = ok && result == 0;
+     }
++    unsigned gpu_cx = 0;
++    PE_parse_boot_argn("midogpucx", &gpu_cx, sizeof(gpu_cx));
++    if (gpu_cx == 1 && ok) {
++        int result = mido_gpu_cx_vote(&rpm);
++        IOLog("MIDO GPU CX: smpa2 level=%u result=%d ack=0x%x,0x%x\n",
++            MIDO_GPU_CX_INITIAL_LEVEL, result, rpm.ack[0], rpm.ack[1]);
++        IOLog("MIDO GPU CX: audit after vote; no GDSC/GFX-LDO/GPU/SMMU writes\n");
++        mido_gpu_audit();
++    } else if (gpu_cx) {
++        IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
++    }
+     IOSleep(50);
+     return ok;
+ }
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_cx.h
+@@ -0,0 +1,18 @@
++#ifndef MIDO_GPU_CX_H
++#define MIDO_GPU_CX_H
++
++#include "mido_rpm_smd.h"
++
++#define MIDO_GPU_CX_RESOURCE 0x61706d73U
++#define MIDO_GPU_CX_LEVEL_KEY 0x6c766c76U
++#define MIDO_GPU_CX_INITIAL_LEVEL 192U
++
++static inline int
++mido_gpu_cx_vote(struct mido_rpm_io *rpm)
++{
++    const uint32_t kvp[6] = {MIDO_RPM_KEY_ENABLE, 4, 1,
++        MIDO_GPU_CX_LEVEL_KEY, 4, MIDO_GPU_CX_INITIAL_LEVEL};
++    return mido_rpm_request(rpm, MIDO_GPU_CX_RESOURCE, 2, kvp, 6, 0x475001);
++}
++
++#endif
+--- a/iokit/Kernel/arm/mido_rpm_smd.h
++++ b/iokit/Kernel/arm/mido_rpm_smd.h
+@@ -214,7 +214,8 @@ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
+     io->ack[0] = response[5];
+     io->ack[1] = response[6];
+     /* Success ack carries only the msg_id pair (lk2nd ACK_MSG_LENGTH). */
+-    return response[5] == MIDO_RPM_REQ_MAGIC && response[6] == 12 ? 0 : -9;
++    return length == 12 && response[5] == MIDO_RPM_REQ_MAGIC &&
++        response[6] == 12 && response[7] == msg_id ? 0 : -9;
+ }
+ 
+ #endif
