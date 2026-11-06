@@ -1,5 +1,31 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06: donor reuse prepared; GPU frontend ARM64 compile PASS
+
+User confirms safe0127 works. No fresh runtime capture; keep GPU MMIO disabled.
+No device commands/buildCI/reboot/rootfs/firmware writes this milestone.
+Prepared offline pinnedSailfish6f27e41ff249f2680540ebe8ee5ab982c5e641c9:
+44patches reconstruct GPU/WLAN backends/frontends, sweetgl bridge and pinned
+IONetworking recipe. out/donor-reuse-20261106-both24files/hashmanifest.
+New tools/mido_prepare_donors.py reads pinnedgitobjects, preservesoriginals,
+refusesoverwrite; emits separately adapted MidoGPU/MidoWLAN frontend candidates.
+GPUfrontend preserves SweetGPU/MesaABI, replaces SweetSurface withMidoSurface;
+oneARM64object47984bytesPASS,notlinked/enabled. Firstcompile failed absent
+outputdirectory; corrected directory, no driver code workaround.
+WLANfrontend preservesApple80211interface, changesbackendcallbackstomido.
+NOTcompiled:IONetworkingFamily absent. Backendscan/join dispatch still needs
+separation fromQCA6174. HakiOSlocal a48d2b29 usesWCN6750/ath11k/QMI,notPronto.
+PinnedAndroidkgsl_pwrctrl.c downloadedforreading:enable sequence includes
+activepwrlevel,rails,clocks,AXIbusvote,regulator_enable. OurCBCRchecks lack
+completebus/frequency/IOMMUsequence; NOTprovensolecauseofexternalabort.
+DonorhardcodesA530identity/GMEM/power/SMMU/display:doNOTbootunchanged.
+SevennewfocusedtestsPASS. Fullnative result follows in audit document.
+Details mido/notes/donor-reuse-20261106.md,privatecompile/testlogs.
+NEXTtraceownDTbusvote/resourcesandfullpreMMIOcontract;stagepinned
+IONetworking offline/extractApple80211dispatcher;reusefrontends,notradio.
+NoGPUacceleration/WiFinetworkclaim. Preserveexistingtouch/display/8CPU.
+
+
 ## MIDO active 2026-11-06:0127 GPU external abort; safe temporary boot accepted
 
 User panic photo resolves against exact0127 kernel: PCfffffff007a6a638,
