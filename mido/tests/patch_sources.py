@@ -30,7 +30,8 @@ def kernel_source(root, name, base):
                       "0127-mido-cbcr-noc-fsm-status.patch",
                       "0128-mido-donor-backend-bridges.patch",
                       "0129-mido-gpu-core-retention.patch",
-                      "0130-mido-shared-cx-and-pronto-supply-votes.patch"):
+                      "0130-mido-shared-cx-and-pronto-supply-votes.patch",
+                      "0131-mido-secure-restore-and-pronto-loader.patch"):
             if later <= base:
                 continue
             subprocess.run(["git", "apply", "--include=" + relative,

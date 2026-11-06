@@ -33,11 +33,12 @@ mido_scm_invoke(struct mido_scm_registers *state)
 #endif
 
 static int64_t
-mido_scm_query(uint32_t function, uint32_t argument, uint64_t *available)
+mido_scm_call(uint32_t function, uint32_t info, uint64_t first,
+    uint64_t second, uint64_t third, uint64_t *available)
 {
     *available = 0;
     for (unsigned busy = 0; busy < 4; busy++) {
-        struct mido_scm_registers state = {{function, 1, argument, 0, 0, 0, 0}};
+        struct mido_scm_registers state = {{function, info, first, second, third, 0, 0}};
         for (unsigned interrupted = 0; interrupted < 8; interrupted++) {
             MIDO_SCM_INVOKE(&state);
             int64_t result = (int32_t)state.values[0];
@@ -59,6 +60,12 @@ mido_scm_query(uint32_t function, uint32_t argument, uint64_t *available)
         IODelay(10);
     }
     return -12;
+}
+
+static int64_t
+mido_scm_query(uint32_t function, uint32_t argument, uint64_t *available)
+{
+    return mido_scm_call(function, 1, argument, 0, 0, available);
 }
 
 static int64_t

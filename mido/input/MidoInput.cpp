@@ -30,6 +30,7 @@ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
 extern "C" vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
 #include "mido_gpu_clocks.h"
 #include "mido_gpu_rate.h"
+#include "mido_gpu_secure.h"
 #include "mido_gpu_status.h"
 #include "mido_wcnss_clocks.h"
 extern "C" void mido_hid_key(int, int);
@@ -266,7 +267,12 @@ MidoInput::touchRails(void)
         if (rate_result != 0) {
             IOLog("MIDO GPU RATE: result=%d\n", rate_result);
         }
-        int status_result = mido_gpu_status(rate_result < 0 ? rate_result : clocks_result);
+        int secure_result = mido_gpu_secure_restore(rate_result);
+        if (secure_result != 0) {
+            IOLog("MIDO GPU SECURE: result=%d\n", secure_result);
+        }
+        int status_result = mido_gpu_status(secure_result < 0 ? secure_result :
+            (rate_result < 0 ? rate_result : clocks_result));
         if (status_result != 0) {
             IOLog("MIDO GPU STATUS: result=%d\n", status_result);
         }

@@ -30,7 +30,10 @@ class CxSourceTests(unittest.TestCase):
             self.assertLess(source.index(request), gpu_vote)
         clocks = source.index("mido_gpu_clocks(gx_result)")
         rate = source.index("mido_gpu_rate(clocks_result)")
-        status = source.index("mido_gpu_status(rate_result < 0 ? rate_result : clocks_result)")
+        secure = source.index("mido_gpu_secure_restore(rate_result)")
+        status = source.index("mido_gpu_status(secure_result < 0 ? secure_result :")
+        self.assertLess(rate, secure)
+        self.assertLess(secure, status)
         self.assertLess(clocks, rate)
         self.assertLess(rate, status)
         self.assertLess(clocks, status)
@@ -38,6 +41,8 @@ class CxSourceTests(unittest.TestCase):
 
     def test_patch_reconstructs_current_driver_and_header(self):
         for name, base, canonical in (
+                ("mido_gpu_secure.h", "0131-mido-secure-restore-and-pronto-loader.patch", "gpu"),
+                ("mido_wcnss_loader.h", "0131-mido-secure-restore-and-pronto-loader.patch", "wifi"),
                 ("MidoInput.cpp", "0107-mido-polled-input-battery.patch", "input"),
                 ("mido_gpu_cx.h", "0115-mido-serialized-gpu-cx-vote.patch", "gpu"),
                 ("mido_gpu_bhs.h", "0118-mido-gfx-bhs-preparation.patch", "gpu"),

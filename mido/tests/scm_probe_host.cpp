@@ -18,6 +18,15 @@ static bool PE_parse_boot_argn(const char *name, void *output, int size)
 static void invoke(struct mido_scm_registers *state)
 {
     calls++;
+    if (scenario == 11) {
+        assert(state->values[0] == 0x42000202U && state->values[1] == 3);
+        assert(state->values[2] == 6 && state->values[3] == 0x8e700000ULL);
+        assert(state->values[4] == 6565888 && !state->values[5] && !state->values[6]);
+        state->values[0] = calls == 1 ? 0xfffffff4U : 0;
+        state->values[1] = 0x123456;
+        state->values[3] = 0xdeadbeef;
+        return;
+    }
     if (state->values[0] == 1) {
         assert(scenario == 3 || scenario == 4);
         if (scenario == 3) {
@@ -87,5 +96,8 @@ int main()
     reset(4); assert(mido_scm_query(0x42000207U, 6, &available) == -100 && calls == 8);
     reset(7); calls = 6; available = 99;
     assert(mido_scm_query(0x42000207U, 6, &available) == -2 && available == 0);
+    reset(11); available = 0;
+    assert(mido_scm_call(0x42000202U, 3, 6, 0x8e700000ULL, 6565888, &available) == 0);
+    assert(calls == 2 && delays == 1 && available == 0x123456);
     return 0;
 }

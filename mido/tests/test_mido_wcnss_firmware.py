@@ -10,9 +10,42 @@ SPEC = importlib.util.spec_from_file_location("mido_wcnss_firmware",
                                             ROOT / "tools/mido_wcnss_firmware.py")
 FIRMWARE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FIRMWARE)
+import mido_pronto_stage as STAGE
 
 
 class WcnssTests(unittest.TestCase):
+    def staging_inputs(self):
+        nodes = self.board(STAGE.SIZE)
+        nodes["/reserved-memory/wcnss"]["reg"] = struct.pack(">QQ", STAGE.BASE, STAGE.SIZE)
+        payload = bytearray(4096)
+        payload[:8] = b"SWEETXNU"
+        struct.pack_into("<II7Q", payload, 8, 1, 1, 0x100000, 0x100100,
+                         800, 128, 0x102000, 0x20000000, 0x100000)
+        struct.pack_into("<4Q", payload, 680, 0x100000, 4096, 1000, 128)
+        return nodes, payload
+
+    def test_private_staging_preserves_data_and_separate_metadata_without_device_writes(self):
+        nodes, payload = self.staging_inputs()
+        header, report = STAGE.prepare(self.directory, nodes, payload)
+        self.assertIn("mido_pronto_segment_2", header)
+        self.assertIn("0x54, 0x45, 0x53, 0x54, 0x43, 0x4f, 0x44, 0x45", header)
+        self.assertEqual(report["allocation_bytes"], 8192)
+        self.assertEqual(report["metadata_physical"] % 4096, 0)
+        self.assertGreaterEqual(report["metadata_physical"], STAGE.BASE + 8192)
+        self.assertLessEqual(report["metadata_physical"] + report["metadata_bytes"], STAGE.BASE + STAGE.SIZE)
+        for flag in ("hardware_written", "pas_authentication_established", "network_ready"):
+            self.assertFalse(report[flag])
+
+    def test_private_staging_rejects_wrong_board_and_kernel_overlap(self):
+        nodes, payload = self.staging_inputs()
+        struct.pack_into("<Q", payload, 56, STAGE.BASE)
+        with self.assertRaisesRegex(ValueError, "overlaps"):
+            STAGE.prepare(self.directory, nodes, payload)
+        nodes, payload = self.staging_inputs()
+        nodes["/reserved-memory/wcnss"]["reg"] = struct.pack(">QQ", STAGE.BASE + 4096, STAGE.SIZE)
+        with self.assertRaisesRegex(ValueError, "own mido"):
+            STAGE.prepare(self.directory, nodes, payload)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

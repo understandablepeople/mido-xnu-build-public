@@ -41,6 +41,18 @@ class NextStageTests(unittest.TestCase):
     def test_scm_queries_only_fallback_and_bounded_interrupt_busy(self):
         self.compile_cpp("scm_probe_host.cpp", "wifi")
 
+    def test_pronto_loader_ranges_pas_types_cache_order_and_every_failure(self):
+        self.compile_cpp("wcnss_loader_host.cpp", "wifi")
+
+    def test_gpu_secure_restore_gates_and_distinct_secure_transport_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "secure"
+            subprocess.run([shutil.which("c++"), "-std=c++14", "-Wall", "-Wextra", "-Werror",
+                            "-Wno-unused-function", "-fsanitize=address,undefined",
+                            "-I", str(ROOT / "mido/gpu"), "-I", str(ROOT / "mido/wifi"),
+                            str(ROOT / "mido/tests/gpu_secure_host.cpp"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def compile_cpp(self, name, include):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / "host"

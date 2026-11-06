@@ -1,5 +1,24 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-07:0131 local implementation; NOT a working driver
+
+New0131 GPU secure restore is opt-in/defaultOFF, checks rate/SMC64/capability,
+uses device18/context0, checks transport AND secure status. No SMMU resume,
+raw GPU access or acceleration. SCM transport now supports typed3-register
+requests; prior query ABI and bounded interruption/busy behavior preserved.
+Pronto callback-driven loader validates all destinations before writes and
+implements metadata clean -> PAS6 init/mem -> copy/BSS/clean -> ready recheck
+-> auth/reset. NO kernel startup caller or real memory/cache/power callbacks
+yet: NOT integrated/deployed firmware startup. Host staging uses actual own
+firmware/liveDT/payload; privateout/pronto-stage-0131-private has7324metadata
+bytes at8edfe000, allocation6565888. Sanitized own-data copy/BSS PASS, PAS MOCK.
+113hosttests PASS(oneNDKskip),20ARM64objects PASS; historicalintegrity errors
+unchanged. Reportlogs/preflight-20261106T210243Z/report.json. No CI or reboot;
+adb stillrecovery. Do not call this workingGPU/WiFi or boot an empty candidate.
+Next realbinding/cacheownership/proxybus/IRIS/SCM readiness then SMD/NV/DXE;
+GPU still needsAXI/QoS/SMMU/ZAP/CP/BO/fences/userspace. See0131note.
+UnrelatedNOTES/shim/dyld/log changes preserved unstaged.
+
 ## MIDO active 2026-11-06:0130 fresh runtime power/rate acknowledgements PASS
 
 Fresh read-only recovery pull: logs/shared-power-rate-0130-runtime-20261106.txt,
