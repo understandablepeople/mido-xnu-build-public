@@ -76,3 +76,11 @@ No candidate kernel/image or reboot occurred. Phone verified still in
 recovery. Next requires an available full-build runner, successful CI,
 then strict candidate validation before temporary boot. Local tests and
 ARM64 object checks are not substituted for a complete linked kernel.
+
+User-authorized retry attempt3 acquired a runner and compiled7m54s.
+Actual source error at kern_exec.c4207: declaration immediately after
+bad: label. CI compiler rejects this pre-C23 syntax while the newer
+local compiler accepted it. Diagnostic is now enclosed in a compound
+statement. Regression test requires that statement block after the label.
+New local preflight75tests(oneNDKskip),4ARM64objects and firmwarechecks
+PASS; existing whole-repo validator failures unchanged. New fullCI needed.
