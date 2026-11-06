@@ -23,11 +23,13 @@
 #include "mido_gpu_gx_power.h"
 #include "mido_wcnss_audit.h"
 #include "mido_scm_probe.h"
+#include "mido_wcnss_power.h"
 
 extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
 extern "C" vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
 #include "mido_gpu_clocks.h"
+#include "mido_gpu_rate.h"
 #include "mido_gpu_status.h"
 #include "mido_wcnss_clocks.h"
 extern "C" void mido_hid_key(int, int);
@@ -220,6 +222,10 @@ MidoInput::touchRails(void)
         }
         ok = ok && result == 0;
     }
+    int wifi_power_result = mido_wcnss_power(&rpm, ok);
+    if (wifi_power_result != 0) {
+        IOLog("MIDO WIFI POWER: result=%d shared-cx-floor=%u\n", wifi_power_result, rpm.cx_level_floor);
+    }
     mido_wcnss_audit(&rpm);
     mido_scm_probe();
     int wifi_clocks_result = mido_wcnss_clocks();
@@ -229,9 +235,11 @@ MidoInput::touchRails(void)
     unsigned gpu_cx = 0;
     PE_parse_boot_argn("midogpucx", &gpu_cx, sizeof(gpu_cx));
     if (gpu_cx == 1 && ok) {
+        uint32_t requested_cx = rpm.cx_level_floor > MIDO_GPU_CX_INITIAL_LEVEL ?
+            rpm.cx_level_floor : MIDO_GPU_CX_INITIAL_LEVEL;
         int result = mido_gpu_cx_vote(&rpm);
         IOLog("MIDO GPU CX: smpa2 level=%u result=%d ack=0x%x,0x%x\n",
-            MIDO_GPU_CX_INITIAL_LEVEL, result, rpm.ack[0], rpm.ack[1]);
+            requested_cx, result, rpm.ack[0], rpm.ack[1]);
         IOLog("MIDO GPU CX: audit after vote; no GDSC/GFX-LDO/GPU/SMMU writes\n");
         mido_gpu_audit();
         int bhs_result = mido_gpu_bhs_prepare(result);
@@ -254,7 +262,11 @@ MidoInput::touchRails(void)
             IOLog("MIDO GPU CLOCKS: result=%d; snapshot after request\n", clocks_result);
             mido_gpu_audit();
         }
-        int status_result = mido_gpu_status(clocks_result);
+        int rate_result = mido_gpu_rate(clocks_result);
+        if (rate_result != 0) {
+            IOLog("MIDO GPU RATE: result=%d\n", rate_result);
+        }
+        int status_result = mido_gpu_status(rate_result < 0 ? rate_result : clocks_result);
         if (status_result != 0) {
             IOLog("MIDO GPU STATUS: result=%d\n", status_result);
         }

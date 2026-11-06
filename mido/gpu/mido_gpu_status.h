@@ -25,8 +25,9 @@ mido_gpu_status(int clocks_result)
         return -2;
     }
     volatile uint32_t *clock = (volatile uint32_t *)clock_mapping;
+    uint32_t config = MIDO_GPU_GX_LOAD(clock + 0x1004 / 4);
     bool ready = (MIDO_GPU_GX_LOAD(clock + 0x1000 / 4) & 0x80000003U) == 2U &&
-        MIDO_GPU_GX_LOAD(clock + 0x1004 / 4) == 0 &&
+        (config == 0 || config == 0x505U) &&
         (MIDO_GPU_GX_LOAD(clock + 0x104c / 4) & 0x80000001U) == 0x80000000U &&
         (MIDO_GPU_GX_LOAD(clock + 0x101c / 4) & 0x80000001U) == 0x80000000U &&
         !(MIDO_GPU_GX_LOAD(clock + 0x300c / 4) & 1U) &&

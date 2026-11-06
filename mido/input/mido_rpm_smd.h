@@ -45,6 +45,7 @@ struct mido_rpm_io {
     void (*notify)(void *);
     void (*delay)(void *, unsigned);
     uint32_t ack[2];
+    uint32_t cx_level_floor;
 };
 
 static inline volatile uint32_t *
@@ -88,11 +89,11 @@ mido_rpm_ack_valid(const uint32_t *response, unsigned words, uint32_t msg_id)
 }
 
 static inline int
-mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
-    const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id)
+mido_rpm_request_set(struct mido_rpm_io *io, uint32_t type, uint32_t id,
+    const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id, unsigned selected_set)
 {
     if (io == NULL || io->smem == NULL || io->notify == NULL || io->delay == NULL ||
-        kvp == NULL || kvp_words == 0 || kvp_words > 12 ||
+        kvp == NULL || kvp_words == 0 || kvp_words > 12 || selected_set > 1 ||
         io->smem_size < 4 * (52 + 4 * (MIDO_SMEM_LAST_ITEM + 1)) ||
         io->smem[48] != 1) {
         return -1;
@@ -162,7 +163,7 @@ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
     message[5] = MIDO_RPM_REQ_MAGIC;
     message[6] = 4 * (words - 7);
     message[7] = msg_id;
-    message[8] = 0;
+    message[8] = selected_set;
     message[9] = type;
     message[10] = id;
     message[11] = 4 * kvp_words;
@@ -223,6 +224,13 @@ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
     io->ack[1] = response[6];
     /* Success ack carries only the msg_id pair (lk2nd ACK_MSG_LENGTH). */
     return mido_rpm_ack_valid(response + 5, length / 4, msg_id) ? 0 : -9;
+}
+
+static inline int
+mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
+    const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id)
+{
+    return mido_rpm_request_set(io, type, id, kvp, kvp_words, msg_id, 0);
 }
 
 #endif

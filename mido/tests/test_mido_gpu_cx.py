@@ -29,7 +29,10 @@ class CxSourceTests(unittest.TestCase):
         for request in ("mido_wcnss_audit(&rpm)", "mido_scm_probe()", "mido_wcnss_clocks()"):
             self.assertLess(source.index(request), gpu_vote)
         clocks = source.index("mido_gpu_clocks(gx_result)")
-        status = source.index("mido_gpu_status(clocks_result)")
+        rate = source.index("mido_gpu_rate(clocks_result)")
+        status = source.index("mido_gpu_status(rate_result < 0 ? rate_result : clocks_result)")
+        self.assertLess(clocks, rate)
+        self.assertLess(rate, status)
         self.assertLess(clocks, status)
         self.assertLess(status, source.index("IOSleep(50);", status))
 
@@ -42,6 +45,8 @@ class CxSourceTests(unittest.TestCase):
                 ("mido_gpu_cx_power.h", "0121-mido-cx-domain-and-wcnss-discovery.patch", "gpu"),
                 ("mido_wcnss_smem.h", "0121-mido-cx-domain-and-wcnss-discovery.patch", "wifi"),
                 ("mido_wcnss_audit.h", "0121-mido-cx-domain-and-wcnss-discovery.patch", "wifi"),
+                ("mido_wcnss_power.h", "0130-mido-shared-cx-and-pronto-supply-votes.patch", "wifi"),
+                ("mido_gpu_rate.h", "0130-mido-shared-cx-and-pronto-supply-votes.patch", "gpu"),
                 ("mido_gpu_gx_power.h", "0124-mido-gx-xo-power-and-scm-info.patch", "gpu"),
                 ("mido_scm_probe.h", "0124-mido-gx-xo-power-and-scm-info.patch", "wifi"),
                 ("mido_gpu_clocks.h", "0125-mido-gpu-branches-and-pas-support.patch", "gpu"),

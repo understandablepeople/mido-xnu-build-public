@@ -1,0 +1,288 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -23,11 +23,13 @@
+ #include "mido_gpu_gx_power.h"
+ #include "mido_wcnss_audit.h"
+ #include "mido_scm_probe.h"
++#include "mido_wcnss_power.h"
+ 
+ extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
+ extern "C" vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
+ #include "mido_gpu_clocks.h"
++#include "mido_gpu_rate.h"
+ #include "mido_gpu_status.h"
+ #include "mido_wcnss_clocks.h"
+ extern "C" void mido_hid_key(int, int);
+@@ -220,6 +222,10 @@ MidoInput::touchRails(void)
+         }
+         ok = ok && result == 0;
+     }
++    int wifi_power_result = mido_wcnss_power(&rpm, ok);
++    if (wifi_power_result != 0) {
++        IOLog("MIDO WIFI POWER: result=%d shared-cx-floor=%u\n", wifi_power_result, rpm.cx_level_floor);
++    }
+     mido_wcnss_audit(&rpm);
+     mido_scm_probe();
+     int wifi_clocks_result = mido_wcnss_clocks();
+@@ -229,9 +235,11 @@ MidoInput::touchRails(void)
+     unsigned gpu_cx = 0;
+     PE_parse_boot_argn("midogpucx", &gpu_cx, sizeof(gpu_cx));
+     if (gpu_cx == 1 && ok) {
++        uint32_t requested_cx = rpm.cx_level_floor > MIDO_GPU_CX_INITIAL_LEVEL ?
++            rpm.cx_level_floor : MIDO_GPU_CX_INITIAL_LEVEL;
+         int result = mido_gpu_cx_vote(&rpm);
+         IOLog("MIDO GPU CX: smpa2 level=%u result=%d ack=0x%x,0x%x\n",
+-            MIDO_GPU_CX_INITIAL_LEVEL, result, rpm.ack[0], rpm.ack[1]);
++            requested_cx, result, rpm.ack[0], rpm.ack[1]);
+         IOLog("MIDO GPU CX: audit after vote; no GDSC/GFX-LDO/GPU/SMMU writes\n");
+         mido_gpu_audit();
+         int bhs_result = mido_gpu_bhs_prepare(result);
+@@ -254,7 +262,11 @@ MidoInput::touchRails(void)
+             IOLog("MIDO GPU CLOCKS: result=%d; snapshot after request\n", clocks_result);
+             mido_gpu_audit();
+         }
+-        int status_result = mido_gpu_status(clocks_result);
++        int rate_result = mido_gpu_rate(clocks_result);
++        if (rate_result != 0) {
++            IOLog("MIDO GPU RATE: result=%d\n", rate_result);
++        }
++        int status_result = mido_gpu_status(rate_result < 0 ? rate_result : clocks_result);
+         if (status_result != 0) {
+             IOLog("MIDO GPU STATUS: result=%d\n", status_result);
+         }
+--- a/iokit/Kernel/arm/mido_rpm_smd.h
++++ b/iokit/Kernel/arm/mido_rpm_smd.h
+@@ -45,6 +45,7 @@ struct mido_rpm_io {
+     void (*notify)(void *);
+     void (*delay)(void *, unsigned);
+     uint32_t ack[2];
++    uint32_t cx_level_floor;
+ };
+ 
+ static inline volatile uint32_t *
+@@ -88,11 +89,11 @@ mido_rpm_ack_valid(const uint32_t *response, unsigned words, uint32_t msg_id)
+ }
+ 
+ static inline int
+-mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
+-    const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id)
++mido_rpm_request_set(struct mido_rpm_io *io, uint32_t type, uint32_t id,
++    const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id, unsigned selected_set)
+ {
+     if (io == NULL || io->smem == NULL || io->notify == NULL || io->delay == NULL ||
+-        kvp == NULL || kvp_words == 0 || kvp_words > 12 ||
++        kvp == NULL || kvp_words == 0 || kvp_words > 12 || selected_set > 1 ||
+         io->smem_size < 4 * (52 + 4 * (MIDO_SMEM_LAST_ITEM + 1)) ||
+         io->smem[48] != 1) {
+         return -1;
+@@ -162,7 +163,7 @@ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
+     message[5] = MIDO_RPM_REQ_MAGIC;
+     message[6] = 4 * (words - 7);
+     message[7] = msg_id;
+-    message[8] = 0;
++    message[8] = selected_set;
+     message[9] = type;
+     message[10] = id;
+     message[11] = 4 * kvp_words;
+@@ -225,4 +226,11 @@ mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
+     return mido_rpm_ack_valid(response + 5, length / 4, msg_id) ? 0 : -9;
+ }
+ 
++static inline int
++mido_rpm_request(struct mido_rpm_io *io, uint32_t type, uint32_t id,
++    const uint32_t *kvp, unsigned kvp_words, uint32_t msg_id)
++{
++    return mido_rpm_request_set(io, type, id, kvp, kvp_words, msg_id, 0);
++}
++
+ #endif
+--- a/iokit/Kernel/arm/mido_gpu_cx.h
++++ b/iokit/Kernel/arm/mido_gpu_cx.h
+@@ -10,9 +10,18 @@
+ static inline int
+ mido_gpu_cx_vote(struct mido_rpm_io *rpm)
+ {
++    uint32_t level = rpm != NULL && rpm->cx_level_floor > MIDO_GPU_CX_INITIAL_LEVEL ?
++        rpm->cx_level_floor : MIDO_GPU_CX_INITIAL_LEVEL;
++    if (level > 384U) {
++        return -1;
++    }
+     const uint32_t kvp[6] = {MIDO_RPM_KEY_ENABLE, 4, 1,
+-        MIDO_GPU_CX_LEVEL_KEY, 4, MIDO_GPU_CX_INITIAL_LEVEL};
+-    return mido_rpm_request(rpm, MIDO_GPU_CX_RESOURCE, 2, kvp, 6, 0x475001);
++        MIDO_GPU_CX_LEVEL_KEY, 4, level};
++    int result = mido_rpm_request(rpm, MIDO_GPU_CX_RESOURCE, 2, kvp, 6, 0x475001);
++    if (result == 0 && rpm != NULL) {
++        rpm->cx_level_floor = level;
++    }
++    return result;
+ }
+ 
+ #endif
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -25,8 +25,9 @@ mido_gpu_status(int clocks_result)
+         return -2;
+     }
+     volatile uint32_t *clock = (volatile uint32_t *)clock_mapping;
++    uint32_t config = MIDO_GPU_GX_LOAD(clock + 0x1004 / 4);
+     bool ready = (MIDO_GPU_GX_LOAD(clock + 0x1000 / 4) & 0x80000003U) == 2U &&
+-        MIDO_GPU_GX_LOAD(clock + 0x1004 / 4) == 0 &&
++        (config == 0 || config == 0x505U) &&
+         (MIDO_GPU_GX_LOAD(clock + 0x104c / 4) & 0x80000001U) == 0x80000000U &&
+         (MIDO_GPU_GX_LOAD(clock + 0x101c / 4) & 0x80000001U) == 0x80000000U &&
+         !(MIDO_GPU_GX_LOAD(clock + 0x300c / 4) & 1U) &&
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_wcnss_power.h
+@@ -0,0 +1,65 @@
++#ifndef MIDO_WCNSS_POWER_H
++#define MIDO_WCNSS_POWER_H
++
++#include "mido_gpu_cx.h"
++
++static int
++mido_wcnss_power(struct mido_rpm_io *rpm, bool touch_rails_ready)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midowifipower", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1 || !touch_rails_ready || rpm == NULL || rpm->cx_level_floor > 384U) {
++        return -1;
++    }
++    static const struct {
++        uint32_t type, id, key, value, milliamp, sets;
++    } supplies[] = {
++        {MIDO_GPU_CX_RESOURCE, 7, MIDO_GPU_CX_LEVEL_KEY, 384, 0, 1},
++        {MIDO_GPU_CX_RESOURCE, 2, MIDO_GPU_CX_LEVEL_KEY, 256, 0, 3},
++        {MIDO_RPM_LDOA, 5, MIDO_RPM_KEY_UV, 1800000, 10, 3},
++        {MIDO_RPM_LDOA, 7, MIDO_RPM_KEY_UV, 1800000, 28, 3},
++        {MIDO_RPM_LDOA, 19, MIDO_RPM_KEY_UV, 1300000, 100, 3},
++        {MIDO_RPM_LDOA, 9, MIDO_RPM_KEY_UV, 3300000, 515, 3},
++    };
++    uint32_t message = 0x574600;
++    for (unsigned index = 0; index < sizeof(supplies) / sizeof(supplies[0]); index++) {
++        const auto &supply = supplies[index];
++        uint32_t value = supply.value;
++        if (supply.type == MIDO_GPU_CX_RESOURCE && supply.id == 2 && rpm->cx_level_floor > value) {
++            value = rpm->cx_level_floor;
++        }
++        const uint32_t kvp[9] = {MIDO_RPM_KEY_ENABLE, 4, 1,
++            supply.key, 4, value, MIDO_RPM_KEY_MA, 4, supply.milliamp};
++        for (unsigned selected = 0; selected < 2; selected++) {
++            if (!(supply.sets & (1U << selected))) {
++                continue;
++            }
++            if (selected == 0 && supply.type == MIDO_GPU_CX_RESOURCE && supply.id == 2) {
++                rpm->cx_level_floor = value;
++            }
++            int result = mido_rpm_request_set(rpm, supply.type, supply.id, kvp,
++                supply.type == MIDO_GPU_CX_RESOURCE ? 6 : 9, message++, selected);
++            IOLog("MIDO WIFI POWER: supply=%u id=%u set=%u value=%u result=%d\n",
++                index, supply.id, selected, value, result);
++            if (result != 0) {
++                return -2;
++            }
++        }
++    }
++    const uint32_t xo[3] = {0x62616e45U, 4, 1};
++    for (unsigned selected = 0; selected < 2; selected++) {
++        int result = mido_rpm_request_set(rpm, 0x306b6c63U, 0, xo, 3, message++, selected);
++        if (result != 0) {
++            IOLog("MIDO WIFI POWER: XO set=%u result=%d; no firmware startup\n", selected, result);
++            return -3;
++        }
++    }
++    IODelay(1000);
++    IOLog("MIDO WIFI POWER: supplies/XO acknowledged; SCM clocks/IRIS/PAS/SMD/DXE not started\n");
++    return 1;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_rate.h
+@@ -0,0 +1,82 @@
++#ifndef MIDO_GPU_RATE_H
++#define MIDO_GPU_RATE_H
++
++#include "mido_cbcr.h"
++
++static int
++mido_gpu_rate_run(volatile uint32_t *registers, volatile uint32_t *pll,
++    volatile uint32_t *vote)
++{
++    uint32_t command = MIDO_GPU_GX_LOAD(registers + 0x1000 / 4);
++    uint32_t config = MIDO_GPU_GX_LOAD(registers + 0x1004 / 4);
++    uint32_t cx = MIDO_GPU_GX_LOAD(registers + 0x104c / 4);
++    uint32_t gx = MIDO_GPU_GX_LOAD(registers + 0x101c / 4);
++    uint32_t clamp = MIDO_GPU_GX_LOAD(registers + 0x300c / 4);
++    uint32_t supply = MIDO_GPU_GX_LOAD(registers + 0x7028 / 4);
++    uint32_t pll_state = MIDO_GPU_GX_LOAD(pll);
++    uint32_t voted = MIDO_GPU_GX_LOAD(vote);
++    if (command != 2 || config != 0 || !(pll_state & (1U << 30)) ||
++        (cx & 0x80000001U) != 0x80000000U || (gx & 0x80000001U) != 0x80000000U ||
++        (clamp & 1U) || (supply & 3U) != 3U) {
++        return -3;
++    }
++    static const unsigned offsets[] = {0x1020, 0x1028, 0x1030, 0x1034, 0x1040, 0x1044};
++    for (unsigned index = 0; index < sizeof(offsets) / sizeof(offsets[0]); index++) {
++        uint32_t value = MIDO_GPU_GX_LOAD(registers + offsets[index] / 4);
++        if ((value & 3U) != 1 || !mido_cbcr_status_on(value)) {
++            return -3;
++        }
++        if (offsets[index] == 0x1020 && (value & 0x6000U) != 0x6000U) {
++            return -3;
++        }
++    }
++    MIDO_GPU_GX_STORE(vote, voted | 1U);
++    if (MIDO_GPU_GX_LOAD(vote) != (voted | 1U)) {
++        return -4;
++    }
++    MIDO_GPU_GX_STORE(registers + 0x1004 / 4, 0x505U);
++    if (MIDO_GPU_GX_LOAD(registers + 0x1004 / 4) != 0x505U) {
++        return -5;
++    }
++    MIDO_GPU_GX_STORE(registers + 0x1000 / 4, command | 1U);
++    for (unsigned attempt = 0; attempt < 1000; attempt++) {
++        uint32_t actual = MIDO_GPU_GX_LOAD(registers + 0x1000 / 4);
++        if (!(actual & 1U)) {
++            if (actual != 2 || MIDO_GPU_GX_LOAD(registers + 0x1004 / 4) != 0x505U ||
++                !(MIDO_GPU_GX_LOAD(pll) & (1U << 30))) {
++                return -6;
++            }
++            IOLog("MIDO GPU RATE: GPLL0/2 HID=5 nominal=133330000 polls=%u; no GPU/SMMU access\n", attempt + 1);
++            return 1;
++        }
++        IODelay(1);
++    }
++    return -7;
++}
++
++static int
++mido_gpu_rate(int clocks_result)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midogpurate", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1 || clocks_result != 1) {
++        return -1;
++    }
++    vm_offset_t registers = ml_io_map_unmappable(0x01858000, 0x8000, VM_WIMG_IO);
++    vm_offset_t pll = ml_io_map_unmappable(0x01821000, 0x1000, VM_WIMG_IO);
++    vm_offset_t vote = ml_io_map_unmappable(0x01845000, 0x1000, VM_WIMG_IO);
++    int result = -2;
++    if (registers && pll && vote) {
++        result = mido_gpu_rate_run((volatile uint32_t *)registers,
++            (volatile uint32_t *)pll, (volatile uint32_t *)vote);
++    }
++    if (vote) ml_io_unmap(vote, 0x1000);
++    if (pll) ml_io_unmap(pll, 0x1000);
++    if (registers) ml_io_unmap(registers, 0x8000);
++    return result;
++}
++
++#endif

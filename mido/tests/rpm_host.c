@@ -8,6 +8,7 @@ static uint32_t smem[0x4000], window[0x2000];
 static uint32_t *port, *fifo;
 static unsigned notifies, requests;
 static unsigned wrong_message;
+static unsigned expected_set;
 #define FIFO_WORDS 512 /* 2 KiB per direction */
 
 static void
@@ -26,6 +27,7 @@ rpm_side(void *context)
         assert(length >= 4 * 7 && length <= 4 * 19);
         assert(tx[5] == MIDO_RPM_REQ_MAGIC);
         assert(tx[9] == MIDO_RPM_LDOA);
+        assert(tx[8] == expected_set);
         requests++;
         uint32_t ack[10] = {20, 0, 0, 0, 0, MIDO_RPM_REQ_MAGIC, 12,
             0x2367736dU, 4, tx[7]};
@@ -87,6 +89,13 @@ main(void)
         MIDO_RPM_KEY_MA, 4, 100};
     assert(mido_rpm_request(&io, MIDO_RPM_LDOA, 6, kvp, 9, 1) == 0);
     assert(requests == 1 && io.ack[0] == MIDO_RPM_REQ_MAGIC && io.ack[1] == 12);
+    memset(port, 0, 8 * MIDO_SS_WORDS);
+    expected_set = 1;
+    assert(mido_rpm_request_set(&io, MIDO_RPM_LDOA, 6, kvp, 9, 0x574601, 1) == 0);
+    unsigned previous_requests = requests;
+    assert(mido_rpm_request_set(&io, MIDO_RPM_LDOA, 6, kvp, 9, 0x574602, 2) == -1);
+    assert(requests == previous_requests);
+    expected_set = 0;
     memset(port, 0, 8 * MIDO_SS_WORDS);
     memset(fifo, 0, 2 * FIFO_WORDS * sizeof(uint32_t));
     wrong_message = 1;

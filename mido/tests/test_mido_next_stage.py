@@ -23,6 +23,18 @@ class NextStageTests(unittest.TestCase):
     def test_gpu_clock_whitelist_gates_timeouts_and_mapping_cleanup(self):
         self.compile_cpp("gpu_clocks_host.cpp", "gpu")
 
+    def test_gpu_active_rate_gates_exact_writes_timeouts_and_cleanup(self):
+        self.compile_cpp("gpu_rate_host.cpp", "gpu")
+
+    def test_wifi_supplies_sleep_votes_shared_gpu_floor_and_all_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "wifi-power"
+            subprocess.run([shutil.which("c++"), "-std=c++14", "-Wall", "-Wextra", "-Werror",
+                            "-fsanitize=address,undefined", "-I", str(ROOT / "mido/input"),
+                            "-I", str(ROOT / "mido/gpu"), "-I", str(ROOT / "mido/wifi"),
+                            str(ROOT / "mido/tests/wcnss_power_host.cpp"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_gx_gates_exact_write_whitelist_timeouts_and_readbacks(self):
         self.compile_cpp("gpu_gx_power_host.cpp", "gpu")
 

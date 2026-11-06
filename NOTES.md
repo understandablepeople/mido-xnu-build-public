@@ -1,5 +1,26 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0130 shared Pronto power and GPU active-rate candidate
+
+Real opt-in RPM requests added: midowifipower=1 supplies/XO, active/sleep
+sets, duplicateL5 aggregated, L7 proxy+iris load28mA, sharedCXfloor256.
+GPU vote never lowers that floor, including uncertain failedWLAN CXack.
+midogpurate=1 selects GPLL0/2 HID5 nominal133330000 only after sixclocks,
+CX/GX/supply/clamp/retention/PLL checks; finitepolls/unmap, noGPU/SMMUread.
+OwnliveDT six supplygroups/sevenroles/proxy/sets/units and gfxcorner1 PASS.
+Bothnewflags defaultOFF. GPUfrontend/WLANfrontend still lack realbackends;
+NOacceleration/network/PASstartupclaim. Rawstatus guard and midogpustatus=0
+stay. NEXTonefullCI/link candidate then verifiedlk2ndtempboot with newflags,
+read onefreshlog after user UI check/recovery; no partitionflash/rootwrites.
+Expanded tools/mido-preflight.py nowchecks canonical bridge+RPM+power/rate
+sources andcompiles20objects, notoldfour. Privatepreflight20261106T202003Z:
+109nativePASS(oneNDKskip),20ARM64objectsPASS, firmware/DT/memoryplansPASS,
+recoveryreadsPASS. Historicalintegrity12patchgaps/3CRLFremainunchanged.
+Objectimportaudit0unmatchedagainst0127+newobjects,NOTfullkernellinkproof.
+Recoverypullstillshows safe0127 (no newrate/powerevidence);noMMIOpokes.
+Detailsmido/notes/shared-power-active-rate-0130.md. Preserve unrelated
+shim/build.sh,dyldtools,logs,accumulatedNOTESchanges; stage scopeonly.
+
 ## MIDO active 2026-11-06:0129 retention candidate; safe0127 fresh log verified
 
 Phone verified in recovery via adb get-state; no reboot/flash/rootfs writes.
