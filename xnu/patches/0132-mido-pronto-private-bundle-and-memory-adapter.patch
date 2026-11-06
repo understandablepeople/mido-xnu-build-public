@@ -1,0 +1,416 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -10,6 +10,7 @@
+ #include <libkern/c++/OSSymbol.h>
+ #include <libkern/c++/OSDictionary.h>
+ #include <pexpert/pexpert.h>
++#include <pexpert/device_tree.h>
+ #include <machine/machine_routines.h>
+ #include <vm/memory_types.h>
+ #include <kern/clock.h>
+@@ -31,12 +32,32 @@
+ #include "mido_gpu_clocks.h"
+ #include "mido_gpu_rate.h"
+ #include "mido_gpu_secure.h"
++#include "mido_gpu_smmu.h"
+ #include "mido_gpu_status.h"
+ #include "mido_wcnss_clocks.h"
++#include "mido_wcnss_start.h"
+ extern "C" void mido_hid_key(int, int);
+ extern "C" void mido_hid_touch(int, int, int, int);
+ extern "C" int mido_hid_ready(void);
+ extern "C" void mido_display_power(int);
++
++extern "C" int
++mido_pronto_boot(int (*dependencies_ready)(void *), void *dependencies)
++{
++    static unsigned claimed;
++    static struct mido_pronto_memory memory = {};
++    if (!dependencies_ready) {
++        return -10;
++    }
++    unsigned expected = 0;
++    if (!__atomic_compare_exchange_n(&claimed, &expected, 1, false,
++        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
++        return -11;
++    }
++    memory.dependencies_ready = dependencies_ready;
++    memory.dependencies = dependencies;
++    return mido_pronto_start_from_adt(&memory);
++}
+
+ /* Framebuffer RequestPowerChange: -1 none, 0 off, 1 on; applied from the poll thread. */
+ static volatile int gDisplayRequest = -1;
+@@ -271,8 +292,12 @@
+         if (secure_result != 0) {
+             IOLog("MIDO GPU SECURE: result=%d\n", secure_result);
+         }
+-        int status_result = mido_gpu_status(secure_result < 0 ? secure_result :
+-            (rate_result < 0 ? rate_result : clocks_result));
++        int smmu_result = mido_gpu_smmu_resume(secure_result);
++        if (smmu_result != 0) {
++            IOLog("MIDO GPU SMMU: result=%d\n", smmu_result);
++        }
++        int status_result = mido_gpu_status(smmu_result < 0 ? smmu_result :
++            (secure_result < 0 ? secure_result : (rate_result < 0 ? rate_result : clocks_result)));
+         if (status_result != 0) {
+             IOLog("MIDO GPU STATUS: result=%d\n", status_result);
+         }
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_wcnss_bundle.h
+@@ -0,0 +1,79 @@
++#ifndef MIDO_WCNSS_BUNDLE_H
++#define MIDO_WCNSS_BUNDLE_H
++
++#include "mido_wcnss_loader.h"
++
++static inline uint64_t
++mido_pronto_get64(const uint8_t *source)
++{
++    uint64_t value = 0;
++    for (unsigned index = 0; index < 8; index++) {
++        value |= (uint64_t)source[index] << (index * 8);
++    }
++    return value;
++}
++
++static inline int
++mido_pronto_bundle_extent(uint64_t offset, uint64_t bytes, size_t length, size_t table_end)
++{
++    return offset >= table_end && bytes && offset <= length && bytes <= length - offset;
++}
++
++static inline int
++mido_pronto_bundle_parse(const uint8_t *blob, size_t length, struct mido_pronto_image *image,
++    struct mido_pronto_segment *segments, unsigned capacity)
++{
++    static const uint8_t magic[] = {'M', 'I', 'D', 'O', 'P', 'R', 'N', 'T'};
++    if (!blob || !image || !segments || length < 56 || length > 0x1000000) {
++        return -1;
++    }
++    for (unsigned index = 0; index < sizeof(magic); index++) {
++        if (blob[index] != magic[index]) {
++            return -1;
++        }
++    }
++    uint64_t version_count = mido_pronto_get64(blob + 8);
++    unsigned count = (unsigned)(version_count >> 32);
++    size_t table_end = 56 + (size_t)count * 32;
++    uint64_t metadata_offset = mido_pronto_get64(blob + 32);
++    uint64_t metadata_bytes = mido_pronto_get64(blob + 40);
++    if ((uint32_t)version_count != 1 || !count || count > capacity ||
++        count > MIDO_PRONTO_MAX_SEGMENTS || table_end > length ||
++        mido_pronto_get64(blob + 48) != length ||
++        !mido_pronto_bundle_extent(metadata_offset, metadata_bytes, length, table_end)) {
++        return -1;
++    }
++    struct mido_pronto_image candidate = {blob + metadata_offset, (size_t)metadata_bytes,
++        mido_pronto_get64(blob + 24), mido_pronto_get64(blob + 16), segments, count};
++    for (unsigned index = 0; index < count; index++) {
++        const uint8_t *entry = blob + 56 + index * 32;
++        uint64_t offset = mido_pronto_get64(entry + 8);
++        uint64_t bytes = mido_pronto_get64(entry + 16);
++        uint64_t memory_bytes = mido_pronto_get64(entry + 24);
++        if (memory_bytes > MIDO_PRONTO_BYTES ||
++            (bytes && !mido_pronto_bundle_extent(offset, bytes, length, table_end)) ||
++            (!bytes && offset) || (bytes && offset < metadata_offset + metadata_bytes &&
++                metadata_offset < offset + bytes)) {
++            return -1;
++        }
++        for (unsigned previous = 0; bytes && previous < index; previous++) {
++            const uint8_t *other = blob + 56 + previous * 32;
++            uint64_t other_offset = mido_pronto_get64(other + 8);
++            uint64_t other_bytes = mido_pronto_get64(other + 16);
++            if (other_bytes && offset < other_offset + other_bytes && other_offset < offset + bytes) {
++                return -1;
++            }
++        }
++        segments[index].physical = mido_pronto_get64(entry);
++        segments[index].data = bytes ? blob + offset : NULL;
++        segments[index].file_bytes = (size_t)bytes;
++        segments[index].memory_bytes = (size_t)memory_bytes;
++    }
++    if (mido_pronto_validate(&candidate)) {
++        return -1;
++    }
++    *image = candidate;
++    return 0;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_wcnss_memory.h
+@@ -0,0 +1,141 @@
++#ifndef MIDO_WCNSS_MEMORY_H
++#define MIDO_WCNSS_MEMORY_H
++
++#include "mido_wcnss_loader.h"
++#include "mido_scm_probe.h"
++
++#ifndef MIDO_PRONTO_SYNC
++#define MIDO_PRONTO_SYNC() __asm__ volatile("dsb sy" ::: "memory")
++#endif
++
++struct mido_pronto_memory {
++    vm_offset_t mapping;
++    unsigned claimed;
++    int (*dependencies_ready)(void *);
++    void *dependencies;
++    struct mido_pronto_result result;
++};
++
++static inline int
++mido_pronto_memory_ready(void *argument)
++{
++    struct mido_pronto_memory *memory = (struct mido_pronto_memory *)argument;
++    return memory->dependencies_ready(memory->dependencies);
++}
++
++static inline int
++mido_pronto_memory_write(void *argument, uint64_t physical, const uint8_t *source, size_t bytes)
++{
++    struct mido_pronto_memory *memory = (struct mido_pronto_memory *)argument;
++    if (!memory->mapping || !source || !mido_pronto_inside(physical, bytes)) {
++        return -1;
++    }
++    volatile uint8_t *destination = (volatile uint8_t *)(memory->mapping + physical - MIDO_PRONTO_BASE);
++    for (size_t index = 0; index < bytes; index++) {
++        destination[index] = source[index];
++    }
++    return 0;
++}
++
++static inline int
++mido_pronto_memory_zero(void *argument, uint64_t physical, size_t bytes)
++{
++    struct mido_pronto_memory *memory = (struct mido_pronto_memory *)argument;
++    if (!memory->mapping || !mido_pronto_inside(physical, bytes)) {
++        return -1;
++    }
++    volatile uint8_t *destination = (volatile uint8_t *)(memory->mapping + physical - MIDO_PRONTO_BASE);
++    for (size_t index = 0; index < bytes; index++) {
++        destination[index] = 0;
++    }
++    return 0;
++}
++
++static inline int
++mido_pronto_memory_clean(void *argument, uint64_t physical, size_t bytes)
++{
++    struct mido_pronto_memory *memory = (struct mido_pronto_memory *)argument;
++    if (!memory->mapping || !mido_pronto_inside(physical, bytes)) {
++        return -1;
++    }
++    MIDO_PRONTO_SYNC();
++    return 0;
++}
++
++static inline int64_t
++mido_pronto_memory_call(void *argument, uint32_t function, uint32_t info,
++    const uint64_t *arguments, uint64_t *secure)
++{
++    struct mido_pronto_memory *memory = (struct mido_pronto_memory *)argument;
++    if (!memory->mapping || !arguments || !secure || arguments[0] != 6 ||
++        mido_pronto_memory_ready(argument) != 1) {
++        return -1;
++    }
++    if (function == 0x02000201U) {
++        if (info != 0x82 || arguments[2] || (arguments[1] & 4095) ||
++            !mido_pronto_inside(arguments[1], 1)) {
++            return -1;
++        }
++    } else if (function == 0x02000202U) {
++        if (info != 3 || arguments[1] != MIDO_PRONTO_BASE ||
++            (arguments[2] & 4095) || !mido_pronto_inside(arguments[1], arguments[2])) {
++            return -1;
++        }
++    } else if (function != 0x02000205U || info != 1 || arguments[1] || arguments[2]) {
++        return -1;
++    }
++    MIDO_PRONTO_SYNC();
++    return mido_scm_call(function | 0x40000000U, info, arguments[0],
++        arguments[1], arguments[2], secure);
++}
++
++static inline int
++mido_pronto_memory_load(struct mido_pronto_memory *memory, const struct mido_pronto_image *image,
++    uint64_t arena_base, uint64_t arena_bytes)
++{
++    if (!memory || !memory->dependencies_ready || mido_pronto_validate(image) ||
++        !arena_bytes || arena_base > UINT64_MAX - arena_bytes ||
++        (arena_base < MIDO_PRONTO_BASE + MIDO_PRONTO_BYTES &&
++            MIDO_PRONTO_BASE < arena_base + arena_bytes)) {
++        return -10;
++    }
++    unsigned expected = 0;
++    if (!__atomic_compare_exchange_n(&memory->claimed, &expected, 1, false,
++        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
++        return -11;
++    }
++    if (memory->mapping || memory->result.stage != MIDO_PRONTO_IDLE ||
++        mido_pronto_memory_ready(memory) != 1) {
++        return -12;
++    }
++    uint64_t available = 0;
++    if (mido_scm_available(0x40000000U, 0x82000601U, &available) || available != 1) {
++        return -13;
++    }
++    static const uint32_t functions[] = {0x02000201U, 0x02000202U, 0x02000205U};
++    for (unsigned index = 0; index < sizeof(functions) / sizeof(functions[0]); index++) {
++        if (mido_scm_available(0x40000000U, functions[index], &available) || available != 1) {
++            return -13;
++        }
++    }
++    if (mido_scm_available(0x40000000U, 0x02000207U, &available) || available != 1 ||
++        mido_scm_query(0x42000207U, 6, &available) || available != 1) {
++        return -13;
++    }
++    if (mido_pronto_memory_ready(memory) != 1) {
++        return -12;
++    }
++    memory->mapping = ml_io_map_unmappable(MIDO_PRONTO_BASE, MIDO_PRONTO_BYTES, VM_WIMG_WCOMB);
++    if (!memory->mapping) {
++        return -14;
++    }
++    struct mido_pronto_ops ops = {memory, mido_pronto_memory_ready, mido_pronto_memory_write,
++        mido_pronto_memory_zero, mido_pronto_memory_clean, mido_pronto_memory_call};
++    int result = mido_pronto_load(image, &ops, &memory->result);
++    MIDO_PRONTO_SYNC();
++    ml_io_unmap(memory->mapping, MIDO_PRONTO_BYTES);
++    memory->mapping = 0;
++    return result;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_wcnss_start.h
+@@ -0,0 +1,42 @@
++#ifndef MIDO_WCNSS_START_H
++#define MIDO_WCNSS_START_H
++
++#include "mido_wcnss_bundle.h"
++#include "mido_wcnss_memory.h"
++
++extern "C" int mido_pronto_boot(int (*dependencies_ready)(void *), void *dependencies);
++
++static inline int
++mido_pronto_start_from_adt(struct mido_pronto_memory *memory)
++{
++    if (!memory) {
++        return -10;
++    }
++    DTEntry chosen = NULL;
++    const void *bundle = NULL;
++    const void *arena_base = NULL;
++    const void *arena_bytes = NULL;
++    unsigned bundle_bytes = 0, base_bytes = 0, size_bytes = 0;
++    if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
++        SecureDTGetProperty(chosen, "mido-pronto-bundle", &bundle, &bundle_bytes) != kSuccess ||
++        SecureDTGetProperty(chosen, "dram-base", &arena_base, &base_bytes) != kSuccess ||
++        SecureDTGetProperty(chosen, "dram-size", &arena_bytes, &size_bytes) != kSuccess ||
++        !arena_base || !arena_bytes || base_bytes != 8 || size_bytes != 8) {
++        return -20;
++    }
++    struct mido_pronto_segment segments[MIDO_PRONTO_MAX_SEGMENTS];
++    struct mido_pronto_image image = {};
++    if (mido_pronto_bundle_parse((const uint8_t *)bundle, bundle_bytes, &image,
++        segments, MIDO_PRONTO_MAX_SEGMENTS)) {
++        return -21;
++    }
++    int result = mido_pronto_memory_load(memory, &image,
++        mido_pronto_get64((const uint8_t *)arena_base),
++        mido_pronto_get64((const uint8_t *)arena_bytes));
++    IOLog("MIDO WIFI FIRMWARE: result=%d stage=%u copied=%u transport=%lld secure=%llu; not SMD/DXE/network proof\n",
++        result, (unsigned)memory->result.stage, memory->result.copied_segments,
++        memory->result.transport, memory->result.secure);
++    return result;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_smmu.h
+@@ -0,0 +1,84 @@
++#ifndef MIDO_GPU_SMMU_H
++#define MIDO_GPU_SMMU_H
++
++#include "mido_scm_probe.h"
++
++static inline int64_t
++mido_gpu_smmu_atomic(uint32_t function, uint32_t info, uint64_t physical,
++    uint64_t value, uint64_t *returned)
++{
++    if (!returned ||
++        (function == 0xc2000501U ? (info != 1 || value ||
++            (physical != 0x01c40024 && physical != 0x01c46000)) :
++            (function != 0xc2000502U || info != 2 || physical != 0x01c46000 || value > UINT32_MAX))) {
++        return -101;
++    }
++    *returned = 0;
++    struct mido_scm_registers state = {{function, info, physical, value, 0, 0, 0}};
++    for (unsigned interrupted = 0; interrupted < 8; interrupted++) {
++        MIDO_SCM_INVOKE(&state);
++        int64_t result = (int32_t)state.values[0];
++        if (result == 1) {
++            state.values[0] = 1;
++            continue;
++        }
++        if (!result) {
++            *returned = state.values[1];
++        }
++        return result;
++    }
++    return -100;
++}
++
++static inline int
++mido_gpu_smmu_resume(int secure_result)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midogpusmmu", &mode, sizeof(mode));
++    if (!mode) {
++        return 0;
++    }
++    if (mode != 1 || secure_result != 1) {
++        return -1;
++    }
++    uint64_t available = 0;
++    static const uint32_t functions[] = {0x02000501U, 0x02000502U};
++    for (unsigned index = 0; index < sizeof(functions) / sizeof(functions[0]); index++) {
++        if (mido_scm_available(0x40000000U, functions[index], &available) || available != 1) {
++            return -2;
++        }
++    }
++    uint64_t id = 0;
++    int64_t transport = mido_gpu_smmu_atomic(0xc2000501U, 1, 0x01c40024, 0, &id);
++    if (transport || id > UINT32_MAX || !id || id == UINT32_MAX) {
++        return -3;
++    }
++    unsigned page_shift = (id & (1U << 31)) ? 16 : 12;
++    uint64_t size = 1ULL << (((id >> 28) & 7U) + page_shift + 2);
++    unsigned banks = id & 0xffU, stage2 = (id >> 16) & 0xffU;
++    if (page_shift != 12 || size != 0x10000 || !banks ||
++        banks > (size >> (page_shift + 1)) || stage2 > banks) {
++        return -4;
++    }
++    uint64_t physical = 0x01c40000ULL + (6ULL << page_shift);
++    uint64_t control = 0;
++    transport = mido_gpu_smmu_atomic(0xc2000501U, 1, physical, 0, &control);
++    if (transport || control > UINT32_MAX || control == UINT32_MAX) {
++        return -5;
++    }
++    uint64_t ignored = 0;
++    transport = mido_gpu_smmu_atomic(0xc2000502U, 2, physical, control & ~4ULL, &ignored);
++    if (transport) {
++        return -6;
++    }
++    uint64_t after = 0;
++    transport = mido_gpu_smmu_atomic(0xc2000501U, 1, physical, 0, &after);
++    if (transport || after > UINT32_MAX || (after & 4U)) {
++        return -7;
++    }
++    IOLog("MIDO GPU SMMU: static-CB secure resume id1=%08x control=%08x->%08x; no context/page-table/GPU access\n",
++        (unsigned)id, (unsigned)control, (unsigned)after);
++    return 1;
++}
++
++#endif

@@ -10,6 +10,7 @@
 #include <libkern/c++/OSSymbol.h>
 #include <libkern/c++/OSDictionary.h>
 #include <pexpert/pexpert.h>
+#include <pexpert/device_tree.h>
 #include <machine/machine_routines.h>
 #include <vm/memory_types.h>
 #include <kern/clock.h>
@@ -31,12 +32,32 @@ extern "C" vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
 #include "mido_gpu_clocks.h"
 #include "mido_gpu_rate.h"
 #include "mido_gpu_secure.h"
+#include "mido_gpu_smmu.h"
 #include "mido_gpu_status.h"
 #include "mido_wcnss_clocks.h"
+#include "mido_wcnss_start.h"
 extern "C" void mido_hid_key(int, int);
 extern "C" void mido_hid_touch(int, int, int, int);
 extern "C" int mido_hid_ready(void);
 extern "C" void mido_display_power(int);
+
+extern "C" int
+mido_pronto_boot(int (*dependencies_ready)(void *), void *dependencies)
+{
+    static unsigned claimed;
+    static struct mido_pronto_memory memory = {};
+    if (!dependencies_ready) {
+        return -10;
+    }
+    unsigned expected = 0;
+    if (!__atomic_compare_exchange_n(&claimed, &expected, 1, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return -11;
+    }
+    memory.dependencies_ready = dependencies_ready;
+    memory.dependencies = dependencies;
+    return mido_pronto_start_from_adt(&memory);
+}
 
 /* Framebuffer RequestPowerChange: -1 none, 0 off, 1 on; applied from the poll thread. */
 static volatile int gDisplayRequest = -1;
@@ -271,8 +292,12 @@ MidoInput::touchRails(void)
         if (secure_result != 0) {
             IOLog("MIDO GPU SECURE: result=%d\n", secure_result);
         }
-        int status_result = mido_gpu_status(secure_result < 0 ? secure_result :
-            (rate_result < 0 ? rate_result : clocks_result));
+        int smmu_result = mido_gpu_smmu_resume(secure_result);
+        if (smmu_result != 0) {
+            IOLog("MIDO GPU SMMU: result=%d\n", smmu_result);
+        }
+        int status_result = mido_gpu_status(smmu_result < 0 ? smmu_result :
+            (secure_result < 0 ? secure_result : (rate_result < 0 ? rate_result : clocks_result)));
         if (status_result != 0) {
             IOLog("MIDO GPU STATUS: result=%d\n", status_result);
         }

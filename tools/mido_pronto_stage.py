@@ -62,6 +62,38 @@ def prepare(directory, nodes, payload):
     return "\n".join(lines), report
 
 
+def encode_bundle(directory, report):
+    directory = Path(directory)
+
+    def checked(name):
+        blob = (directory / name).read_bytes()
+        expected = report["files"][name]
+        if len(blob) != expected["size"] or hashlib.sha256(blob).hexdigest() != expected["sha256"]:
+            raise ValueError("Firmware changed during bundle creation: " + name)
+        return blob
+
+    segments = report["board_plan"]["segments"]
+    output = bytearray(56 + 32 * len(segments))
+    metadata_offset = len(output)
+    metadata = checked("wcnss.mdt")
+    output += metadata
+    output += bytes(-len(output) & 7)
+    for index, segment in enumerate(segments):
+        size = segment["copy_bytes"]
+        offset = len(output) if size else 0
+        if size:
+            output += checked("wcnss.b%02d" % segment["index"])
+            output += bytes(-len(output) & 7)
+        struct.pack_into("<4Q", output, 56 + index * 32, segment["destination"], offset,
+                         size, size + segment["zero_bytes"])
+    struct.pack_into("<8sII5Q", output, 0, b"MIDOPRNT", 1, len(segments),
+                     report["allocation_bytes"], report["metadata_physical"],
+                     metadata_offset, len(metadata), len(output))
+    if len(output) > 0x1000000:
+        raise ValueError("Pronto bundle exceeds parser limit")
+    return bytes(output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
@@ -73,6 +105,9 @@ def main():
         header, report = prepare(args.directory, parse_fdt(args.dtb.read_bytes())["nodes"],
                                  args.payload.read_bytes())
         args.output.mkdir(parents=True, exist_ok=False)
+        bundle = encode_bundle(args.directory, report)
+        (args.output / "pronto.bin").write_bytes(bundle)
+        report["bundle_sha256"] = hashlib.sha256(bundle).hexdigest()
         (args.output / "mido_private_pronto_image.h").write_text(header, encoding="ascii")
         (args.output / "manifest.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError, KeyError, struct.error) as error:

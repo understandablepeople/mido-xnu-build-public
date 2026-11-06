@@ -31,7 +31,10 @@ class CxSourceTests(unittest.TestCase):
         clocks = source.index("mido_gpu_clocks(gx_result)")
         rate = source.index("mido_gpu_rate(clocks_result)")
         secure = source.index("mido_gpu_secure_restore(rate_result)")
-        status = source.index("mido_gpu_status(secure_result < 0 ? secure_result :")
+        smmu = source.index("mido_gpu_smmu_resume(secure_result)")
+        status = source.index("mido_gpu_status(smmu_result < 0 ? smmu_result :")
+        self.assertLess(secure, smmu)
+        self.assertLess(smmu, status)
         self.assertLess(rate, secure)
         self.assertLess(secure, status)
         self.assertLess(clocks, rate)
@@ -41,6 +44,10 @@ class CxSourceTests(unittest.TestCase):
 
     def test_patch_reconstructs_current_driver_and_header(self):
         for name, base, canonical in (
+                ("mido_gpu_smmu.h", "0132-mido-pronto-private-bundle-and-memory-adapter.patch", "gpu"),
+                ("mido_wcnss_bundle.h", "0132-mido-pronto-private-bundle-and-memory-adapter.patch", "wifi"),
+                ("mido_wcnss_memory.h", "0132-mido-pronto-private-bundle-and-memory-adapter.patch", "wifi"),
+                ("mido_wcnss_start.h", "0132-mido-pronto-private-bundle-and-memory-adapter.patch", "wifi"),
                 ("mido_gpu_secure.h", "0131-mido-secure-restore-and-pronto-loader.patch", "gpu"),
                 ("mido_wcnss_loader.h", "0131-mido-secure-restore-and-pronto-loader.patch", "wifi"),
                 ("MidoInput.cpp", "0107-mido-polled-input-battery.patch", "input"),

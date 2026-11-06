@@ -11,6 +11,8 @@ SPEC = importlib.util.spec_from_file_location("mido_wcnss_firmware",
 FIRMWARE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FIRMWARE)
 import mido_pronto_stage as STAGE
+import mido_pronto_payload as HANDOFF
+import adt
 
 
 class WcnssTests(unittest.TestCase):
@@ -65,6 +67,47 @@ class WcnssTests(unittest.TestCase):
         table = self.header + b"".join(struct.pack("<8I", *item) for item in self.programs)
         (self.directory / "wcnss.mdt").write_bytes(table + b"TESTHASH")
         (self.directory / "wcnss.b00").write_bytes(table)
+
+    def bundle_inputs(self):
+        nodes, payload = self.staging_inputs()
+        root = adt.Node()
+        root.props = [("name", 0, b"/\0")]
+        chosen = adt.Node()
+        chosen.props = [("name", 0, b"chosen\0"), ("dram-base", 0, struct.pack("<Q", 0x20000000)),
+                        ("dram-size", 0, struct.pack("<Q", 0x100000)), ("keep", 0, b"unchanged")]
+        root.children = [chosen]
+        blob = adt.serialize(root)
+        payload[800:800 + len(blob)] = blob
+        struct.pack_into("<Q", payload, 40, len(blob))
+        _, report = STAGE.prepare(self.directory, nodes, payload)
+        return payload, STAGE.encode_bundle(self.directory, report)
+
+    def test_binary_bundle_handoff_preserves_kernel_and_chosen_properties(self):
+        payload, bundle = self.bundle_inputs()
+        output, report = HANDOFF.attach(payload, bundle)
+        self.assertEqual(output[:32], payload[:32])
+        self.assertEqual(output[48:len(payload)], payload[48:])
+        offset, size = struct.unpack_from("<QQ", output, 32)
+        root, consumed = adt.parse(output[offset:offset + size])
+        self.assertEqual(consumed, size)
+        self.assertEqual(root.children[0].prop("keep"), b"unchanged")
+        self.assertEqual(root.children[0].prop("mido-pronto-bundle"), bundle)
+        self.assertFalse(report["device_written"])
+        self.assertFalse(report["boot_arguments_changed"])
+        with self.assertRaisesRegex(ValueError, "already attached"):
+            HANDOFF.attach(output, bundle)
+
+    def test_bundle_attachment_rejects_arena_mismatch_source_overlap_and_bad_count(self):
+        payload, bundle = self.bundle_inputs()
+        for offset, value in ((8, 0), (12, 33), (32, 0), (48, len(bundle) + 1),
+                              (64, struct.unpack_from("<Q", bundle, 32)[0])):
+            changed = bytearray(bundle)
+            struct.pack_into("<I" if offset < 16 else "<Q", changed, offset, value)
+            with self.subTest(offset=offset), self.assertRaises(ValueError):
+                HANDOFF.attach(payload, changed)
+        struct.pack_into("<Q", payload, 64, 0x200000)
+        with self.assertRaisesRegex(ValueError, "disagree"):
+            HANDOFF.attach(payload, bundle)
 
     def board(self, size=8192):
         cell = lambda number: struct.pack(">I", number)

@@ -1,5 +1,27 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-07:0132 private firmware handoff and real memory adapter
+
+Implemented private binarybundle -> copiedpayloadADT -> boundedkernelparser
+-> SecureDTentry -> real NormalNC mapping/volatilecopy/DSBSY -> typedPAS6.
+Memoryadapter has actualXNU/SCM operations, readiness checks eachPAS, mapping
+cleanup and oneclaim latch. NO production readiness provider/startup caller
+exists yet: realIRIS/proxyclock/bus/ownership still missing; NOT workingWLAN.
+New midogpusmmu defaultOFF requires secure_restore1, verifies ownID1 geometry,
+then SCM-only staticCB resume bit2 and readback. No directGPU/SMMUMMIO, no
+CP/ZAP/contextmapping/backend readiness. No physicalfixclaim or newboot.
+119hosttests PASS(oneNDKskip),20ARM64objectsPASS; samehistoricalintegrityerrors.
+Finalreportlogs/preflight-20261106T212055Z/report.json:119hosttests/20objects
+PASS afterallchanges. DefinedARM64_mido_pronto_boot symbolverified; global
+entryownspersistentcontext/latch butnoactualboardstartupcallerexistyet.
+Actualprivatebundle4142984bytes SHAac6ae6337fcaf2de04cfc8b212da3ba28c312d70af794ab96d2164ef2a23d8de.
+Privatepayload-with-pronto containsOLD0130kernel: NOTdeployable0132image.
+It is host-only, neverbooted/flashed. Phoneverifiedrecovery/mido, noCI/device
+writes. See mido/notes/pronto-memory-smmu-0132.md forexactcontracts/remaining.
+Next realIRIS/proxybus/clock ownership/readiness+startupcaller, SMD/NV/DXE;
+GPU AXI/QoS/ZAP/CP/BO/fences/userspace remain. Do not fabricate readiness.
+UnrelatedNOTES/shim/dyld/log changes preserved unstaged.
+
 ## MIDO active 2026-11-07:0131 local implementation; NOT a working driver
 
 New0131 GPU secure restore is opt-in/defaultOFF, checks rate/SMC64/capability,

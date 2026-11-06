@@ -41,8 +41,32 @@ class NextStageTests(unittest.TestCase):
     def test_scm_queries_only_fallback_and_bounded_interrupt_busy(self):
         self.compile_cpp("scm_probe_host.cpp", "wifi")
 
+    def test_gpu_smmu_secure_io_geometry_preserved_bits_and_no_busy_replay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "smmu"
+            subprocess.run([shutil.which("c++"), "-std=c++14", "-Wall", "-Wextra", "-Werror",
+                            "-Wno-unused-function", "-fsanitize=address,undefined",
+                            "-I", str(ROOT / "mido/gpu"), "-I", str(ROOT / "mido/wifi"),
+                            str(ROOT / "mido/tests/gpu_smmu_host.cpp"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_pronto_loader_ranges_pas_types_cache_order_and_every_failure(self):
         self.compile_cpp("wcnss_loader_host.cpp", "wifi")
+
+    def test_pronto_bundle_parser_bounds_bss_and_mutations(self):
+        self.compile_cpp("wcnss_bundle_host.cpp", "wifi")
+
+    def test_pronto_adt_entry_rejects_missing_properties_before_loader(self):
+        self.compile_cpp("wcnss_start_host.cpp", "wifi")
+
+    def test_pronto_real_memory_adapter_mapping_scm_whitelist_and_failure_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "memory"
+            subprocess.run([shutil.which("c++"), "-std=c++14", "-Wall", "-Wextra", "-Werror",
+                            "-Wno-unused-function", "-fsanitize=address,undefined",
+                            "-I", str(ROOT / "mido/wifi"),
+                            str(ROOT / "mido/tests/wcnss_memory_host.cpp"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
 
     def test_gpu_secure_restore_gates_and_distinct_secure_transport_results(self):
         with tempfile.TemporaryDirectory() as directory:
