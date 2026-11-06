@@ -35,3 +35,9 @@ First sixteen framebuffer copies measured about 29.5-32.1 ms on hardware.
 This is real copy cost, not end-to-end UI latency; lack of GPU alone is not
 proof of the cause of every long UI stall. Need separate profiling.
 No reboot/flash/MMIO/debugfs access in recovery during this diagnosis.
+
+CI 42166309254 at 9398aaa PASSED in 7m9s. Separate eight-core package
+is ready, with shim/DTB/ADT/cmdline unchanged from 0111. Kernel SHA256
+d61c3726818b650f33d28762d9b495b63d70ed8ca736de0befed930f12fcdb5a.
+A53 scanner has only the known complete SHA256 constant table match.
+No 0112 hardware boot yet; reliable touch remains to be demonstrated.
