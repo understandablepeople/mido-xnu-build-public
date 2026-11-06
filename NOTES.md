@@ -1,5 +1,34 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0128 donor bridges wired in source, no hardware backend yet
+
+Safe0127 remains on phone; user reported it works. No device commands/reboots/
+firmware/rootfs writes, no new CI or full kernel link this milestone.
+Canonical MidoGPU(Mesa SweetGPU ABI/MidoSurface) and MidoWLAN(Apple80211)
+frontends imported from pinnedSailfish6f27e41; opt-inmidogpubridge/midowlan.
+0128patch wires4bridgeobjects+12AppleIONetworkingobjects/flags/IOKitmatching.
+0128stage script pins AppleIONetworking170.140.2 commitf9f7e57, MIDO13.5 only.
+Backend registries copy complete callbacks once, require actualready; absent
+backend => ENXIO/zero/unready, not fakehardware. No realregistrationcaller yet.
+GPUmetadatarejectsA530;fenceoncedeliverytestedbothinitorders;unmapcleanup
+afterreadylossallowed. WLANnoindefiniteIOKitbusywait,nofakeen0/link/scan;
+transmitdrops/freeswithoutreadybackend. Bothfrontendsdefaultoff.
+Crash guard: mido_gpu_status nowrequires sweet_gpu_ready BEFORE anymapping,
+notjustsixclocks. No actualexternalabortrootcausefixoraccelerationclaim.
+Local17ARM64objectsPASS(frontends/adapters/Input/12netobjects);symbolaudit
+zeroimports unmatchedagainstexternal0127+newobjects,NOTnewkernellinkproof.
+Fullnative105testsOK(oneNDKskip),8.464sec;ASan/UBSanadaptertestPASS,all7
+canonicalfilesreconstructfrompatch;stagingorder/bashsyntaxPASS. Caught/fixed
+hosttestC++structnamecollisionandstageEOFhunkorderingbeforeCI. Localfirst
+networkstagehelperpathargumentfixed;finalCIstageusesdonorrecipeunchanged.
+Detailsmido/notes/backend-bridges-0128.md;private logs/bridge-0128-*.
+NEXT actualA506preMMIO/AXIbus/frequencycontractthenCP/BO/SMMUbackend;
+ProntoPAS6/supplies/proxyclocks/SMD/DXE plusApple80211dispatchbackend.
+DonotbootinactivebridgesorclaimGPU/WiFiworks. NofullCIuntilusefulphysical
+backendcandidate;donottransplantA530powerthreadorQCA6174/ath11kradio.
+Keepunrelatedshim/build.sh,dyldtools,privatelogsandoldNOTESeditsunstaged.
+
+
 ## MIDO active 2026-11-06: donor reuse prepared; GPU frontend ARM64 compile PASS
 
 User confirms safe0127 works. No fresh runtime capture; keep GPU MMIO disabled.

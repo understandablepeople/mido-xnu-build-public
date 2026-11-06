@@ -2,6 +2,7 @@
 #define MIDO_GPU_STATUS_H
 
 #include "mido_cbcr.h"
+#include "mido_gpu_backend.h"
 
 static int
 mido_gpu_status(int clocks_result)
@@ -14,6 +15,10 @@ mido_gpu_status(int clocks_result)
     if (mode != 1 || clocks_result != 1) {
         IOLog("MIDO GPU STATUS: skipped mode=%u clocks=%d; GPU not accessed\n", mode, clocks_result);
         return -1;
+    }
+    if (!sweet_gpu_ready()) {
+        IOLog("MIDO GPU STATUS: no initialized backend; GPU not accessed\n");
+        return -6;
     }
     vm_offset_t clock_mapping = ml_io_map_unmappable(0x01858000, 0x8000, VM_WIMG_IO);
     if (!clock_mapping) {

@@ -9,6 +9,8 @@ typedef uintptr_t vm_offset_t;
 static uint32_t clocks[0x8000 / 4], gpu[0x10000 / 4], crypto[1024], votes[1024], pll[1024];
 static unsigned mode, maps, unmaps, fail_map, gpu_reads, wifi_reads;
 static bool gpu_mode;
+static bool backend_ready;
+extern "C" bool sweet_gpu_ready(void) { return backend_ready; }
 static void IOLog(const char *, ...) {}
 static bool PE_parse_boot_argn(const char *name, void *output, int size)
 {
@@ -63,6 +65,7 @@ static uint32_t load(volatile uint32_t *target)
 static void reset(bool selected = true)
 {
     gpu_mode = selected; mode = 1;
+    backend_ready = true;
     maps = unmaps = fail_map = gpu_reads = wifi_reads = 0;
     std::memset(clocks, 0, sizeof(clocks));
     clocks[0x1000 / 4] = 2;
@@ -73,6 +76,8 @@ static void reset(bool selected = true)
 }
 int main()
 {
+    reset(); backend_ready = false;
+    assert(mido_gpu_status(1) == -6 && maps == 0 && gpu_reads == 0);
     reset(); mode = 0; assert(mido_gpu_status(1) == 0 && maps == 0);
     reset(); mode = 2; assert(mido_gpu_status(1) == -1 && maps == 0);
     reset(); assert(mido_gpu_status(0) == -1 && maps == 0);
