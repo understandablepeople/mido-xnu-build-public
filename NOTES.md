@@ -1,5 +1,33 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0126 MMIO fix CI PASS, temporary boot accepted
+
+User0125photo confirmsvm_map_deletepermanententrypanic;exactkernelsymbols
+kmem_free_guard->MidoInput::touchRails+6a4. Introducednewtemporarymaps
+incorrectlyusedpermanentml_io_map+ml_io_unmap. Fixedall6to
+ml_io_map_unmappable(...,VM_WIMG_IO),retaincleanup/samecombinedchecks.
+RegressionnativeharnessacceptsonlycorrectAPI/flags;sourcescountslocked.
+Source54f64890515d3f9d92b56e2786cbb9cf5972b4e1,CI42270008073PASS;
+92testsPASS(oneNDKskip),4ARM64objectsPASS,firmware/ownDT/memoryplanPASS.
+Knownoldvalidator12patchgaps/3CRLFscripts unchanged. Initial181837Zcompile
+missingcommonVM_MEMmacrosfixedvm/memory_types.h;finalpreflight182034Z.
+Kernel xnu/out-0126/kernel.development.mido SHA256
+f8ac2b0ba906939acbaf3c48a053bf1b2a74479f3d515dd30a3bc51521abe1ed.
+Image out/mmio-0126-8cpu/package/mido-xnu-shim.img SHA256
+d1fb37e0114bd7e603e5009939d3fb626b99b9eb864ace000cceaf3b750c25c7.
+Artifactchecksumverified;2293760wordsscan,sole0xb33bb4completeK256data,
+zeroactualunsupportedhits. Baseline/8CPU/CC/exact0125combinedflagskept.
+TWRPmido->stockfastbootmido->verifiedlk2ndRAMboot->lk2nd-msm8953->0126
+RAMbootbothOKAYexit0. NOflash/rootfs/firmwarewrites. LoaderacceptanceONLY;
+awaitphysicalUI/paniccheckthenTWRPfreshlogs. GPU/WiFinotclaimedworking.
+Private logs/mmio-0126-validation.json andmmio-0126-temp-boot-20261106.json.
+Prior0125panicTWRPpullwasSTALE0124console254533bytes/flush277/SHA
+cb78e23133e7bc8983daf1d53a00d02fad175c2ea666bf8a4529f0106eef8319;
+doNOTinfer0125stageproof. Detailsmido/notes/panic-0125-mmio-lifetime.md.
+NEXT freshsinglebootpull+tools/mido_bringup_report.py;ifsameoldringor
+no0126markersreportSTALE,notruntimeSUCCESS. Preserveprivatebackups/logs,
+unrelatedshim/build.sh/dyldtoolsandotheraccumulatedNOTESeditsunstaged.
+
 ## MIDO active 2026-11-06:0125 panic confirmed;0126 MMIO lifetime fix ready
 
 User photo shows vm_map_delete permanent-entry panic. Exact0125symbols:

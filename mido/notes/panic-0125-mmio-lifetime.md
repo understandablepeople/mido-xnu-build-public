@@ -50,3 +50,20 @@ firmware/own-board/combined memory and voltage plan pass. Initial181837Z
 ARM64 check caught missing common VM_MEM macros; include corrected from
 arm/memory_types.h to vm/memory_types.h. Known old whole-repository
 validator issues remain: twelve historical numbering gaps/three CRLF scripts.
+
+## 0126 build and temporary boot
+
+Source54f64890515d3f9d92b56e2786cbb9cf5972b4e1, CI42270008073 PASS.
+Kernel SHA256
+f8ac2b0ba906939acbaf3c48a053bf1b2a74479f3d515dd30a3bc51521abe1ed.
+Image out/mmio-0126-8cpu/package/mido-xnu-shim.img SHA256
+d1fb37e0114bd7e603e5009939d3fb626b99b9eb864ace000cceaf3b750c25c7.
+Artifact checksum matched. Scanner2293760words, sole0xb33bb4fullK256data,
+zero actual unsupported instructions. Packaged memory plan passes.
+Baseline shim/DTB/ADT/memory/root/8CPU/CC and all0125combinedflags retained.
+Verified one mido recovery, stockfastbootmido, knownlk2nd checksum, lk2nd
+RAMbootOKAY, productlk2nd-msm8953,0126RAMbootOKAY;bothstatus0.
+No partition flash or rootfs changes. Private validation and boot reports
+logs/mmio-0126-validation.json and mmio-0126-temp-boot-20261106.json.
+Loader acceptance only; await physical startup/panic comparison and fresh
+recovery console for actual GPU/PAS/Wi-Fi stage results.
