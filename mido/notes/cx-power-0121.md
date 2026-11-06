@@ -67,3 +67,8 @@ and whitelist that permits exactly one CX GDSCR write; WCNSS table
 bounds/name/edge/duplicates/read-only checks and patch reconstruction.
 MidoInput.cpp and kern_exec.c ARM64 object compile PASS.
 Control Center0120 code remains unchanged. Full CI/hardware follow-up pending.
+
+Published792ee02bca205b6f1f3ce419ee570e89a60caf28; CI42240304550 attempt1
+never acquired a hosted runner and failed after15m with no compile steps.
+One infrastructure rerun requested (job127977446146); outcome pending.
+No candidate image or reboot before actual successful CI and validation.
