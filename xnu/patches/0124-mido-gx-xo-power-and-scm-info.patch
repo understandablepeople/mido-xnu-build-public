@@ -1,0 +1,256 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -19,7 +19,9 @@
+ #include "mido_gpu_audit.h"
+ #include "mido_gpu_bhs_runtime.h"
+ #include "mido_gpu_cx_power.h"
++#include "mido_gpu_gx_power.h"
+ #include "mido_wcnss_audit.h"
++#include "mido_scm_probe.h"
+ 
+ extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
+@@ -231,10 +233,16 @@
+             IOLog("MIDO GPU CX POWER: result=%d; snapshot after request\n", power_result);
+             mido_gpu_audit();
+         }
++        int gx_result = mido_gpu_gx_power(power_result, bhs_result);
++        if (gx_result != 0) {
++            IOLog("MIDO GPU GX: result=%d; snapshot after request\n", gx_result);
++            mido_gpu_audit();
++        }
+     } else if (gpu_cx) {
+         IOLog("MIDO GPU CX: skipped mode=%u touch-rails-ok=%u\n", gpu_cx, ok ? 1U : 0U);
+     }
+     mido_wcnss_audit(&rpm);
++    mido_scm_probe();
+     IOSleep(50);
+     return ok;
+ }
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_gpu_gx_power.h
+@@ -0,0 +1,115 @@
++#ifndef MIDO_GPU_GX_POWER_H
++#define MIDO_GPU_GX_POWER_H
++
++#ifndef MIDO_GPU_GX_LOAD
++#define MIDO_GPU_GX_LOAD(target) mido_gpu_bhs_load(target)
++#endif
++#ifndef MIDO_GPU_GX_STORE
++#define MIDO_GPU_GX_STORE(target, value) mido_gpu_bhs_store(target, value)
++#endif
++
++static int
++mido_gpu_gx_power(int cx_result, int bhs_result)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midogpugx", &mode, sizeof(mode));
++    if (mode == 0) {
++        return 0;
++    }
++    if (mode != 1 || cx_result != 1 || bhs_result != 1) {
++        IOLog("MIDO GPU GX: skipped mode=%u cx=%d bhs=%d\n", mode, cx_result, bhs_result);
++        return -1;
++    }
++    vm_offset_t mapped = ml_io_map(0x01858000, 0x8000);
++    vm_offset_t acc_mapping = ml_io_map(0x01944000, 0x1000);
++    if (!mapped || !acc_mapping) {
++        return -2;
++    }
++    volatile uint32_t *registers = (volatile uint32_t *)mapped;
++    volatile uint32_t *acc = (volatile uint32_t *)(acc_mapping + 0x15c);
++    volatile uint32_t *command = registers + (0x59000 - 0x58000) / 4;
++    volatile uint32_t *gx = registers + (0x5901c - 0x58000) / 4;
++    volatile uint32_t *clamp = registers + (0x5b00c - 0x58000) / 4;
++    uint32_t cx = MIDO_GPU_GX_LOAD(registers + (0x5904c - 0x58000) / 4);
++    uint32_t before = MIDO_GPU_GX_LOAD(gx);
++    uint32_t control = MIDO_GPU_GX_LOAD(registers + (0x5f01c - 0x58000) / 4);
++    uint32_t cmd = MIDO_GPU_GX_LOAD(command);
++    uint32_t config = MIDO_GPU_GX_LOAD(registers + (0x59004 - 0x58000) / 4);
++    if ((cx & 0x80000007U) != 0x80000000U ||
++        (before & 0x80000007U) != 1U ||
++        (control & 0xe0000217U) != 0x20000010U ||
++        (cmd & 0x80000003U) != 0x80000000U || (config & 0x371fU) != 0) {
++        IOLog("MIDO GPU GX: rejected cx=%08x gx=%08x ctl=%08x cmd=%08x cfg=%08x; no writes\n",
++            cx, before, control, cmd, config);
++        return -3;
++    }
++    static const uint32_t branches[] = {0x59020, 0x59028, 0x59030, 0x59040, 0x59044};
++    for (unsigned index = 0; index < sizeof(branches) / sizeof(branches[0]); index++) {
++        uint32_t value = MIDO_GPU_GX_LOAD(registers + (branches[index] - 0x58000) / 4);
++        if ((value & 0x80000003U) != 0x80000000U) {
++            IOLog("MIDO GPU GX: branch already active offset=%x value=%08x; no writes\n", branches[index], value);
++            return -3;
++        }
++    }
++    uint32_t acc_before = MIDO_GPU_GX_LOAD(acc);
++    uint32_t acc_want = acc_before & ~1U;
++    MIDO_GPU_GX_STORE(acc, acc_want);
++    uint32_t actual = MIDO_GPU_GX_LOAD(acc);
++    if (actual != acc_want) {
++        IOLog("MIDO GPU GX: mem-acc mismatch want=%08x got=%08x; GX unrequested\n", acc_want, actual);
++        return -4;
++    }
++    uint32_t clamp_before = MIDO_GPU_GX_LOAD(clamp);
++    uint32_t clamp_want = clamp_before & ~1U;
++    MIDO_GPU_GX_STORE(clamp, clamp_want);
++    actual = MIDO_GPU_GX_LOAD(clamp);
++    if (actual != clamp_want) {
++        IOLog("MIDO GPU GX: clamp mismatch want=%08x got=%08x; GX unrequested\n", clamp_want, actual);
++        return -5;
++    }
++    MIDO_GPU_GX_STORE(command, cmd | 2U);
++    bool root_on = false;
++    for (unsigned attempt = 0; attempt < 1000; attempt++) {
++        actual = MIDO_GPU_GX_LOAD(command);
++        if ((actual & 3U) != 2U) {
++            IOLog("MIDO GPU GX: root control mismatch got=%08x; GX unrequested\n", actual);
++            return -6;
++        }
++        if (!(actual & 0x80000000U)) {
++            root_on = true;
++            break;
++        }
++        IODelay(1);
++    }
++    if (!root_on) {
++        IOLog("MIDO GPU GX: XO root timeout got=%08x; GX unrequested\n", actual);
++        return -7;
++    }
++    uint32_t requested = before & ~1U;
++    MIDO_GPU_GX_STORE(gx, requested);
++    IODelay(1);
++    for (unsigned attempt = 0; attempt < 1000; attempt++) {
++        actual = MIDO_GPU_GX_LOAD(gx);
++        if ((actual & 0x00fff007U) != (requested & 0x00fff007U)) {
++            IOLog("MIDO GPU GX: control mismatch want=%08x got=%08x\n", requested, actual);
++            return -8;
++        }
++        if (actual & 0x80000000U) {
++            uint32_t status = MIDO_GPU_GX_LOAD(registers + (0x5f028 - 0x58000) / 4);
++            IOLog("MIDO GPU GX: POWER_ON gx=%08x root=%08x mem-acc=%08x->%08x clamp=%08x->%08x supply=%08x polls=%u\n",
++                actual, MIDO_GPU_GX_LOAD(command), acc_before, acc_want,
++                clamp_before, clamp_want, status, attempt + 1);
++            if (!(status & 2U)) {
++                IOLog("MIDO GPU GX: BHS ack missing; no further requests\n");
++                return -9;
++            }
++            IOLog("MIDO GPU GX: XO 19.2MHz only; no branch/GPU/SMMU/SCM writes or acceleration\n");
++            return 1;
++        }
++        IODelay(1);
++    }
++    IOLog("MIDO GPU GX: power timeout gx=%08x; no rollback or further requests\n", actual);
++    return -10;
++}
++
++#endif
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_scm_probe.h
+@@ -0,0 +1,106 @@
++#ifndef MIDO_SCM_PROBE_H
++#define MIDO_SCM_PROBE_H
++
++struct mido_scm_registers {
++    uint64_t values[7];
++};
++
++#ifndef MIDO_SCM_INVOKE
++static void
++mido_scm_invoke(struct mido_scm_registers *state)
++{
++    register uint64_t first __asm__("x0") = state->values[0];
++    register uint64_t info __asm__("x1") = state->values[1];
++    register uint64_t argument __asm__("x2") = state->values[2];
++    register uint64_t third __asm__("x3") = state->values[3];
++    register uint64_t fourth __asm__("x4") = state->values[4];
++    register uint64_t fifth __asm__("x5") = state->values[5];
++    register uint64_t context __asm__("x6") = state->values[6];
++    __asm__ volatile("smc #0"
++        : "+r"(first), "+r"(info), "+r"(argument), "+r"(third),
++          "+r"(fourth), "+r"(fifth), "+r"(context)
++        :
++        : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "memory");
++    state->values[0] = first;
++    state->values[1] = info;
++    state->values[2] = argument;
++    state->values[3] = third;
++    state->values[4] = fourth;
++    state->values[5] = fifth;
++    state->values[6] = context;
++}
++#define MIDO_SCM_INVOKE(state) mido_scm_invoke(state)
++#endif
++
++static int64_t
++mido_scm_available(uint32_t convention, uint32_t query, uint64_t *available)
++{
++    *available = 0;
++    for (unsigned busy = 0; busy < 4; busy++) {
++        struct mido_scm_registers state = {{0x82000601U | convention, 1, query, 0, 0, 0, 0}};
++        for (unsigned interrupted = 0; interrupted < 8; interrupted++) {
++            MIDO_SCM_INVOKE(&state);
++            int64_t result = (int32_t)state.values[0];
++            if (result == 1) {
++                state.values[0] = 1;
++                continue;
++            }
++            if (result != -12) {
++                if (result == 0) {
++                    *available = state.values[1];
++                }
++                return result;
++            }
++            break;
++        }
++        if ((int32_t)state.values[0] != -12) {
++            return -100;
++        }
++        IODelay(10);
++    }
++    return -12;
++}
++
++static void
++mido_scm_probe(void)
++{
++    unsigned mode = 0;
++    PE_parse_boot_argn("midoscmprobe", &mode, sizeof(mode));
++    if (mode == 0) {
++        return;
++    }
++    if (mode != 1) {
++        IOLog("MIDO SCM: unsupported probe mode=%u; no SMC\n", mode);
++        return;
++    }
++    uint32_t convention = 0x40000000U;
++    uint64_t available = 0;
++    int64_t result = mido_scm_available(convention, 0x82000601U, &available);
++    IOLog("MIDO SCM: SMC64 info-availability result=%lld available=%llu\n", result, available);
++    if (result != 0 && result != -1) {
++        IOLog("MIDO SCM: stopped on transport error; no convention fallback\n");
++        return;
++    }
++    if (result != 0 || available == 0) {
++        convention = 0;
++        result = mido_scm_available(convention, 0x82000601U, &available);
++        IOLog("MIDO SCM: SMC32 info-availability result=%lld available=%llu\n", result, available);
++    }
++    if (result != 0 || available == 0) {
++        IOLog("MIDO SCM: no supported ARMv8 convention; no PAS requests\n");
++        return;
++    }
++    static const uint32_t commands[] = {1, 2, 5, 6, 7};
++    for (unsigned index = 0; index < sizeof(commands) / sizeof(commands[0]); index++) {
++        uint32_t query = 0x02000200U | commands[index];
++        result = mido_scm_available(convention, query, &available);
++        IOLog("MIDO SCM: PAS command=%u availability result=%lld available=%llu smc64=%u\n",
++            commands[index], result, available, convention != 0);
++        if (result != 0) {
++            break;
++        }
++    }
++    IOLog("MIDO SCM: INFO queries only; no PAS init/mem/auth/reset/shutdown or firmware writes\n");
++}
++
++#endif

@@ -41,7 +41,7 @@ def arm64_command(distribution):
         "root=" + repr(linux_root),
         "base=pathlib.Path(root)",
         "scratch=base/'research/display-buildtree/xnu/iokit/Kernel/arm'",
-        "for folder,names in [('input',['MidoInput.cpp']),('gpu',['mido_gpu_cx_power.h','mido_gpu_bhs.h','mido_gpu_bhs_runtime.h']),('wifi',['mido_wcnss_audit.h','mido_wcnss_smem.h'])]:",
+        "for folder,names in [('input',['MidoInput.cpp']),('gpu',['mido_gpu_cx_power.h','mido_gpu_gx_power.h','mido_gpu_bhs.h','mido_gpu_bhs_runtime.h']),('wifi',['mido_wcnss_audit.h','mido_wcnss_smem.h','mido_scm_probe.h'])]:",
         " for name in names:",
         "  assert (base/'mido'/folder/name).read_bytes()==(scratch/name).read_bytes(), name+' scratch differs'",
         "exec_source=(base/'research/display-buildtree/xnu/bsd/kern/kern_exec.c').read_text()",

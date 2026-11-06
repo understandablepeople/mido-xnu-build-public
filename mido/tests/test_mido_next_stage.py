@@ -11,6 +11,20 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @unittest.skipIf(os.name == "nt", "run native protocol tests in WSL")
 class NextStageTests(unittest.TestCase):
+    def test_gx_gates_exact_write_whitelist_timeouts_and_readbacks(self):
+        self.compile_cpp("gpu_gx_power_host.cpp", "gpu")
+
+    def test_scm_queries_only_fallback_and_bounded_interrupt_busy(self):
+        self.compile_cpp("scm_probe_host.cpp", "wifi")
+
+    def compile_cpp(self, name, include):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "host"
+            subprocess.run([shutil.which("c++"), "-std=c++14", "-Wall", "-Wextra", "-Werror",
+                            "-fsanitize=address,undefined", "-I", str(ROOT / "mido" / include),
+                            str(ROOT / "mido/tests" / name), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def compile_and_run(self, name, include):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / "host"
