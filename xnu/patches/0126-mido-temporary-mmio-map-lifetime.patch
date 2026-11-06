@@ -1,0 +1,64 @@
+--- a/iokit/Kernel/arm/MidoInput.cpp
++++ b/iokit/Kernel/arm/MidoInput.cpp
+@@ -11,6 +11,7 @@
+ #include <libkern/c++/OSDictionary.h>
+ #include <pexpert/pexpert.h>
+ #include <machine/machine_routines.h>
++#include <vm/memory_types.h>
+ #include <kern/clock.h>
+ #include "mido_qup_v2.h"
+ #include "mido_rpm_smd.h"
+@@ -25,6 +26,7 @@
+ 
+ extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
++extern "C" vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
+ #include "mido_gpu_clocks.h"
+ #include "mido_gpu_status.h"
+ #include "mido_wcnss_clocks.h"
+--- a/iokit/Kernel/arm/mido_gpu_clocks.h
++++ b/iokit/Kernel/arm/mido_gpu_clocks.h
+@@ -66,7 +66,7 @@
+         IOLog("MIDO GPU CLOCKS: skipped mode=%u gx=%d\n", mode, gx_result);
+         return -1;
+     }
+-    vm_offset_t mapped = ml_io_map(0x01858000, 0x8000);
++    vm_offset_t mapped = ml_io_map_unmappable(0x01858000, 0x8000, VM_WIMG_IO);
+     if (!mapped) {
+         return -2;
+     }
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -13,7 +13,7 @@
+         IOLog("MIDO GPU STATUS: skipped mode=%u clocks=%d; GPU not accessed\n", mode, clocks_result);
+         return -1;
+     }
+-    vm_offset_t clock_mapping = ml_io_map(0x01858000, 0x8000);
++    vm_offset_t clock_mapping = ml_io_map_unmappable(0x01858000, 0x8000, VM_WIMG_IO);
+     if (!clock_mapping) {
+         return -2;
+     }
+@@ -35,7 +35,7 @@
+         IOLog("MIDO GPU STATUS: power/clocks changed; GPU not accessed\n");
+         return -3;
+     }
+-    vm_offset_t mapping = ml_io_map(0x01c00000, 0x10000);
++    vm_offset_t mapping = ml_io_map_unmappable(0x01c00000, 0x10000, VM_WIMG_IO);
+     if (!mapping) {
+         return -4;
+     }
+--- a/iokit/Kernel/arm/mido_wcnss_clocks.h
++++ b/iokit/Kernel/arm/mido_wcnss_clocks.h
+@@ -13,9 +13,9 @@
+         IOLog("MIDO WIFI CLOCKS: unsupported mode=%u; no hardware access\n", mode);
+         return -1;
+     }
+-    vm_offset_t crypto = ml_io_map(0x01816000, 0x1000);
+-    vm_offset_t votes = ml_io_map(0x01845000, 0x1000);
+-    vm_offset_t pll = ml_io_map(0x01821000, 0x1000);
++    vm_offset_t crypto = ml_io_map_unmappable(0x01816000, 0x1000, VM_WIMG_IO);
++    vm_offset_t votes = ml_io_map_unmappable(0x01845000, 0x1000, VM_WIMG_IO);
++    vm_offset_t pll = ml_io_map_unmappable(0x01821000, 0x1000, VM_WIMG_IO);
+     if (!crypto || !votes || !pll) {
+         if (crypto) ml_io_unmap(crypto, 0x1000);
+         if (votes) ml_io_unmap(votes, 0x1000);

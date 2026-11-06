@@ -11,6 +11,7 @@
 #include <libkern/c++/OSDictionary.h>
 #include <pexpert/pexpert.h>
 #include <machine/machine_routines.h>
+#include <vm/memory_types.h>
 #include <kern/clock.h>
 #include "mido_qup_v2.h"
 #include "mido_rpm_smd.h"
@@ -25,6 +26,7 @@
 
 extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 extern "C" void ml_io_unmap(vm_offset_t, vm_size_t);
+extern "C" vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
 #include "mido_gpu_clocks.h"
 #include "mido_gpu_status.h"
 #include "mido_wcnss_clocks.h"

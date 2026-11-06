@@ -13,9 +13,9 @@ mido_wcnss_clocks(void)
         IOLog("MIDO WIFI CLOCKS: unsupported mode=%u; no hardware access\n", mode);
         return -1;
     }
-    vm_offset_t crypto = ml_io_map(0x01816000, 0x1000);
-    vm_offset_t votes = ml_io_map(0x01845000, 0x1000);
-    vm_offset_t pll = ml_io_map(0x01821000, 0x1000);
+    vm_offset_t crypto = ml_io_map_unmappable(0x01816000, 0x1000, VM_WIMG_IO);
+    vm_offset_t votes = ml_io_map_unmappable(0x01845000, 0x1000, VM_WIMG_IO);
+    vm_offset_t pll = ml_io_map_unmappable(0x01821000, 0x1000, VM_WIMG_IO);
     if (!crypto || !votes || !pll) {
         if (crypto) ml_io_unmap(crypto, 0x1000);
         if (votes) ml_io_unmap(votes, 0x1000);

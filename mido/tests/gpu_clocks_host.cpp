@@ -5,6 +5,7 @@
 #include <initializer_list>
 
 typedef uintptr_t vm_offset_t;
+#define VM_WIMG_IO 7U
 static uint32_t registers[0x8000 / 4];
 static unsigned mode, writes, maps, unmaps, reads, ready, failed, timeout_branch, mismatch_branch;
 static bool map_failure;
@@ -17,8 +18,9 @@ static bool PE_parse_boot_argn(const char *name, void *output, int size)
     std::memcpy(output, &mode, sizeof(mode));
     return true;
 }
-static vm_offset_t ml_io_map(vm_offset_t address, size_t size)
+static vm_offset_t ml_io_map_unmappable(vm_offset_t address, size_t size, unsigned flags)
 {
+    assert(flags == VM_WIMG_IO);
     assert(address == 0x01858000 && size == sizeof(registers));
     maps++;
     return map_failure ? 0 : (vm_offset_t)registers;

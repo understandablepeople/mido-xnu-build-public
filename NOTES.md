@@ -1,5 +1,26 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0125 panic confirmed;0126 MMIO lifetime fix ready
+
+User photo shows vm_map_delete permanent-entry panic. Exact0125symbols:
+vm_map_delete->vm_map_remove_and_unlock->kmem_free_guard->
+MidoInput::touchRails+6a4->touchSetup->initialize->poll. Introducedbug:
+newtemporaryGPU/WiFidiagnostics pairedpermanent ml_io_map withunmap.
+PinnedXNUio_map.c confirms permanentio_submap versus kernel_map when
+unmappable=true. Fixedall6newtemporarymaps to ml_io_map_unmappable with
+VM_WIMG_IO,keepingcleanup/samecombineddiagnostics/bootflags. NoVMcheck
+bypass,firmware/partition/rootfswrites. Nativeharnesses acceptONLYcorrect
+API/Deviceflags;newsource regression locksAPI/counts. Details
+mido/notes/panic-0125-mmio-lifetime.md. Preflight182034Z:92testsPASS
+(oneNDKskip),4ARM64objectsPASS,firmware/board/combinedplanPASS.
+Initial181837ZcompilemissingVM_MEMmacros fixedvm/memory_types.hinclude.
+Knownoldvalidator12gaps/3CRLFscripts remain; notallgreen.
+Recoveryreadlogs/combined-0125-panic-live-20261106.txt isSTALE0124:
+254533bytes/flush277,SHAcb78e23133e7bc8983daf1d53a00d02fad175c2ea666bf8a4529f0106eef8319.
+DoNOTclaim0125PAS/clocks successfromit. CurrentphoneTWRP verified.
+NEXT sourcecommit/push single0126CI,package/checksums/instructionscan,
+thenverifiedlk2ndRAMboot retainingallcombinedflags. No0126CI/bootyet.
+
 ## MIDO active 2026-11-06: combined0125 CI PASS, temporary boot accepted
 
 Kernel source dbf2ee477f8e63efcf1b847faf78772c19f74414;CI42267277194PASS.

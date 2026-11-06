@@ -13,6 +13,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class CxSourceTests(unittest.TestCase):
+    def test_temporary_mmio_never_uses_permanent_mapping_api(self):
+        for folder, name, count in (("gpu", "mido_gpu_clocks.h", 1),
+                                    ("gpu", "mido_gpu_status.h", 2),
+                                    ("wifi", "mido_wcnss_clocks.h", 3)):
+            source = (ROOT / "mido" / folder / name).read_text()
+            self.assertNotIn("ml_io_map(", source, name)
+            self.assertEqual(source.count("ml_io_map_unmappable("), count, name)
+            self.assertEqual(source.count(", VM_WIMG_IO)"), count, name)
+            self.assertIn("ml_io_unmap(", source, name)
+
     def test_wifi_queries_precede_gpu_and_status_is_clock_gated(self):
         source = (ROOT / "mido/input/MidoInput.cpp").read_text()
         gpu_vote = source.index("mido_gpu_cx_vote(&rpm)")

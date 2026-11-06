@@ -13,7 +13,7 @@ mido_gpu_status(int clocks_result)
         IOLog("MIDO GPU STATUS: skipped mode=%u clocks=%d; GPU not accessed\n", mode, clocks_result);
         return -1;
     }
-    vm_offset_t clock_mapping = ml_io_map(0x01858000, 0x8000);
+    vm_offset_t clock_mapping = ml_io_map_unmappable(0x01858000, 0x8000, VM_WIMG_IO);
     if (!clock_mapping) {
         return -2;
     }
@@ -35,7 +35,7 @@ mido_gpu_status(int clocks_result)
         IOLog("MIDO GPU STATUS: power/clocks changed; GPU not accessed\n");
         return -3;
     }
-    vm_offset_t mapping = ml_io_map(0x01c00000, 0x10000);
+    vm_offset_t mapping = ml_io_map_unmappable(0x01c00000, 0x10000, VM_WIMG_IO);
     if (!mapping) {
         return -4;
     }

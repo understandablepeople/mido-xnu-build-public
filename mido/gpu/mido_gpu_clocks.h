@@ -66,7 +66,7 @@ mido_gpu_clocks(int gx_result)
         IOLog("MIDO GPU CLOCKS: skipped mode=%u gx=%d\n", mode, gx_result);
         return -1;
     }
-    vm_offset_t mapped = ml_io_map(0x01858000, 0x8000);
+    vm_offset_t mapped = ml_io_map_unmappable(0x01858000, 0x8000, VM_WIMG_IO);
     if (!mapped) {
         return -2;
     }
