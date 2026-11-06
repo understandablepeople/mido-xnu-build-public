@@ -1,5 +1,27 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06: combined0125 CI PASS, temporary boot accepted
+
+Kernel source dbf2ee477f8e63efcf1b847faf78772c19f74414;CI42267277194PASS.
+Host followupb7772fa; final91testsPASS(oneNDKskip),4ARM64objectsPASS.
+Kernel xnu/out-0125/kernel.development.mido SHA256
+2863f5acd05b6f8db0ac24113e78f8ec898510ae762913d82a2b23c89a6eda11.
+Image out/combined-0125-8cpu/package/mido-xnu-shim.img SHA256
+3dbd674bd130272affe4ddff16efbf7976e31a69981af1c3d7ecb9b85a3f1051.
+CIchecksummatched;2293760instructionwords,sole0xb33b94fullK256data,
+zeroactualunsupportedhits. Exactbaseline shim/DTB/ADT/memory/root/8CPU/CC
+preserved;packagedmemoryplanPASS. Newargsmidogpuclocks1/midogpustatus1/
+midowificlocks1 alongsidepreviousGX/SCMargs. OneTWRPmido->stockfastbootmido
+->verifiedlk2ndRAMboot->productlk2nd-msm8953->0125RAMboot,bothOKAYexit0.
+NOflash/additionalrootfswrites. LoaderacceptanceONLY; iOSUI/GPUclocks/
+register/PAS6/13/WiFiclockresults requirephysicalcheck+freshTWRPlog.
+Private logs/combined-0125-validation.json and
+combined-0125-temp-boot-20261106.json. Nextuser: UIapps/touch/sleep/CCcheck,
+thenreturnTWRP; pull fresh withtools/mido-log-pull.py andsummarizeusing
+mido_bringup_report.py. Noacceleration/networkclaim. Existingvalidator
+12historicalpatchgaps/3CRLFscripts unchanged. Neverstageprivatefirmware,
+logs,unrelatedshim/build.sh/dyldtools orallaccumulatedlocalNOTES.
+
 ## MIDO active 2026-11-06:0125 source published, CI42267277194 running
 
 User authorized scoped commit/push. Kernel source

@@ -109,3 +109,22 @@ keep acceleration/network false: these are prerequisite diagnostics only.
 Final expanded host suite91 tests pass (one NDK skip); four ARM64 objects
 were already checked for the identical kernel source. No second kernel CI
 is needed for the host parser/tests/documentation follow-up.
+
+## Built image and temporary boot
+
+CI42267277194 PASS fordbf2ee477f8e63efcf1b847faf78772c19f74414.
+Artifact checksum matched. Kernel SHA256
+2863f5acd05b6f8db0ac24113e78f8ec898510ae762913d82a2b23c89a6eda11.
+Image out/combined-0125-8cpu/package/mido-xnu-shim.img SHA256
+3dbd674bd130272affe4ddff16efbf7976e31a69981af1c3d7ecb9b85a3f1051.
+2293760 instruction words scanned; sole0xb33b94 full K256 table is data,
+zero actual unsupported hits. Baseline shim/DTB/ADT/memory/root/8CPU/CC
+preserved; candidate packaged memory plan passes.
+
+Verified one mido recovery, stock fastboot productmido, known lk2nd hash,
+lk2nd temporary boot OKAY, productlk2nd-msm8953, combined0125 boot OKAY.
+Both exit0. No partition flash or additional rootfs changes.
+Private reports logs/combined-0125-validation.json and
+combined-0125-temp-boot-20261106.json. This is loader acceptance, not yet
+hardware proof of clocks/PAS/status, UI startup, acceleration or networking.
+Await user physical UI comparison then return to TWRP for one fresh log.
