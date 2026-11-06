@@ -1,5 +1,27 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0129 retention candidate; safe0127 fresh log verified
+
+Phone verified in recovery via adb get-state; no reboot/flash/rootfs writes.
+Fresh safe0127 log logs/safe0127-runtime-20261106.txt:224769bytes,flush252,
+SHA256 b51ad10e87a0dc3c97a2eeb42a4854da707700ffcca05be998f3ae0f0e59edc0.
+All six GPU clocks ON (59020=00004f01); PAS6/13 supported,transport0.
+No GPU register proof/acceleration; WCNSS_CTRL absent,no radio/network proof.
+0129 adds core CBCR retention bits13/14 before branch-enable requests,
+retains other bits,readback failure stops before enabling branches.
+Own pinned Android gdsc.c calls RETAIN_MEM/PERIPH for CX core_clk;
+clock-local2.c sets bits14/13. Fresh core had bit14 but lacked bit13.
+This is a source-sequence difference,NOT established external-abort cause.
+Candidate runs after GX-power validation,NOT exact Android CX/GX ordering.
+Raw GPU probe still requires actual backend readiness; no callers register
+physical GPU/WLAN backends outside tests. Never enable via fake callbacks.
+Final suite105tests PASS(oneNDKskip),9.784s;17ARM64objects PASS including
+updatedInput/header;retention-bit preservation cases PASS;diffstyle PASS.
+Safe0127 remains device baseline; no full kernel build/link/CI/push/tempboot.
+NEXT implement active GPU clock/bus/IOMMU prerequisites and real A506 CP,
+then Pronto PAS6/supplies/proxyclocks/SMD/DXE; neither is a few-line bridge.
+Preserve unrelated shim/build.sh,dyldtools,private logs,old NOTES changes.
+
 ## MIDO active 2026-11-06:0128 donor bridges wired in source, no hardware backend yet
 
 Safe0127 remains on phone; user reported it works. No device commands/reboots/

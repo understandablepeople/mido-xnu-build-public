@@ -28,7 +28,8 @@ def kernel_source(root, name, base):
                       "0125-mido-gpu-branches-and-pas-support.patch",
                       "0126-mido-temporary-mmio-map-lifetime.patch",
                       "0127-mido-cbcr-noc-fsm-status.patch",
-                      "0128-mido-donor-backend-bridges.patch"):
+                      "0128-mido-donor-backend-bridges.patch",
+                      "0129-mido-gpu-core-retention.patch"):
             if later <= base:
                 continue
             subprocess.run(["git", "apply", "--include=" + relative,

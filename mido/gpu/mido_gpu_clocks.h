@@ -29,6 +29,16 @@ mido_gpu_clocks_run(volatile uint32_t *registers)
             return -4;
         }
     }
+    volatile uint32_t *core = registers + 0x1020 / 4;
+    uint32_t retained = before[5] | 0x6000U;
+    MIDO_GPU_GX_STORE(core, retained);
+    IODelay(1);
+    uint32_t core_actual = MIDO_GPU_GX_LOAD(core);
+    if ((core_actual & 0x0fffffffU) != (retained & 0x0fffffffU)) {
+        IOLog("MIDO GPU CLOCKS: core retention mismatch=%08x; no branches enabled\n", core_actual);
+        return -7;
+    }
+    before[5] = retained;
     for (unsigned index = 0; index < 6; index++) {
         volatile uint32_t *branch = registers + (offsets[index] - 0x58000) / 4;
         uint32_t requested = before[index] | 1U;
