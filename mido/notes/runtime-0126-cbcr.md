@@ -44,3 +44,19 @@ Local preflight185436Z:93 tests pass (one NDK skip), four ARM64 objects
 pass, firmware/own-DT/combined memory and voltage plan pass. Historical
 validator twelve numbering gaps/three CRLF scripts remain unchanged.
 No0127 linked kernel or runtime results at this checkpoint.
+
+## 0127 build and temporary boot
+
+Sourcea12ac37150d8bae6da60bc011103d217cadd3103,CI42275190305 PASS.
+Artifact checksum matched. Kernel SHA256
+fbfd3cc7df8d51bf08e88b039ddada2e494c941c354abd269141ac327a93541b.
+Image out/cbcr-0127-8cpu/package/mido-xnu-shim.img SHA256
+3787e842c7565daea8d53eb7dd802532bfbc3b75169b007ebde8fcd03d5faf72.
+Scanner2293760words,sole0xb33c14fullK256data,zero actual unsupported hits.
+Baseline shim/DTB/ADT/memory/root/8CPU/CC and all combined flags preserved;
+candidate packaged memory plan passes.
+Verified one mido recovery, stockfastbootmido, knownlk2nd hash, lk2ndRAMboot
+OKAY,productlk2nd-msm8953,0127RAMbootOKAY;bothstatus0. No partition flash
+or rootfs modifications. Private logs/cbcr-0127-validation.json and
+cbcr-0127-temp-boot-20261106.json. Loader acceptance only; actual branch
+and GPU register results await user physical test and fresh TWRP console.

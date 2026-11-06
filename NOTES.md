@@ -1,5 +1,32 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0127 NoC fix CI PASS, temporary boot accepted
+
+Fresh0126log308360bytes/flush447 provesPAS6andPAS13support1/transport0,
+CX/GX/BHSon,WiFiclocksnapshot;nocapturedpanic. AHB59028read20008001
+wasfalsecontrolmismatch:bit29isdocumentedNoC_FSM_ON(statusnibble2),not
+writefailure. Laterbranches/GPUreadsnotreached;noacceleration/network.
+0127sharedCBCRhelperacceptsstatus0/2only,compareslower28controlbits,
+requiresOFF8beforewrites;GPUreadgate/hostparseraligned. WiFivotedclock
+statusdecodeaddedwithoutclock/rail/firmwarewrites. All16statusnibblestested.
+Sourcea12ac37150d8bae6da60bc011103d217cadd3103,CI42275190305PASS.
+Preflight185436Z93testsPASS(oneNDKskip),4ARM64objectsPASS,
+firmware/ownDT/combinedmemoryplanPASS;oldvalidator12gaps/3CRLFunchanged.
+Kernel xnu/out-0127/kernel.development.mido SHA256
+fbfd3cc7df8d51bf08e88b039ddada2e494c941c354abd269141ac327a93541b.
+Image out/cbcr-0127-8cpu/package/mido-xnu-shim.img SHA256
+3787e842c7565daea8d53eb7dd802532bfbc3b75169b007ebde8fcd03d5faf72.
+Artifactchecksummatched;2293760wordsscan,sole0xb33c14fullK256data,
+zeroactualunsupportedhits;baseline/8CPU/CC/exactcombinedflagskept.
+TWRPmido->stockfastbootmido->verifiedlk2ndRAMboot->lk2nd-msm8953->0127
+RAMbootbothOKAYexit0. NOflash/rootfschange. LoaderacceptanceONLY:
+awaitphysicalUI/paniccheckthenTWRPfreshlogusingmido-log-pull.py,
+summarizemido_bringup_report.py. Private logs/cbcr-0127-validation.json,
+cbcr-0127-temp-boot-20261106.json. Detailsmido/notes/runtime-0126-cbcr.md.
+Neverclaim0127clocks/GPUreadsuccessbeforelog. WiFiPASsupportisNOTfirmware
+startuporWLANnetwork;GPUbackend/graphicsbridgestillnotimplemented.
+Keepprivatefirmware/logs,unrelatedshim/build.sh/dyldtools/otherNOTESunstaged.
+
 ## MIDO active 2026-11-06: fresh0126 PAS6/13 yes;0127 NoC status fix ready
 
 Read-onlyTWRPpull logs/mmio-0126-live-20261106.txt FRESH308360bytes/flush447,
