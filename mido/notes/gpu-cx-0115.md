@@ -76,5 +76,24 @@ evidence, NOT XNU GPU/Wi-Fi success. No recovery debugfs/MMIO accessed.
 transport error propagation, serialized opt-in callsite checks, full patch
 replay, stale RPM reply rejection, synthetic WCNSS malformed-input tests
 and sanitizer-tested gesture aggregation. MidoInput.cpp/MidoHID.cpp ARM64
-object compiles PASS. Full CI and physical probe results pending.
-Keep0114 rollback image and8CPU/shim/DTB/ADT/root untouched.
+object compiles PASS. CI42224031975 PASS8m40s for kernel source
+a2aec5859f87b49be62748f84ac11774e598c1d5. Host-only WCNSS board-plan
+follow-up3f986da does not alter this kernel.
+
+Kernel xnu/out-0116/kernel.development.mido SHA256
+c5186b3c6066861ba8f8db6be0db3ddc1c1d3396eb868f9ff6d8d5100ef1ff84.
+Image out/gpu-cx-0116-8cpu/package/mido-xnu-shim.img SHA256
+fa975f905c1455b0c78a61976dd313843ab44929e8d07452a153e3c9fc48a993.
+Exact0114 shim/DTB/ADT/memory/outer cmdline preserved; sole inner additions
+midogpucx=1 midohidtrace=1. Scanner single hit0xb32014 is verified complete
+SHA256 K256 table, not an instruction. Zero actual unsupported hits.
+
+Verified one mido in TWRP; adb reboot bootloader (not system), verified
+stock product mido; known lk2nd RAM boot accepted; verified product
+lk2nd-msm8953; candidate RAM boot accepted. No partition flashing, root
+replacement or calibration writes.0114 rollback remains intact.
+Booting OKAY is loader acceptance only. Await physical startup/touch/WLED
+check and early bottom swipes, then return TWRP to pull fresh persisted
+log. Require actual MIDO GPU CX result/ACK and before/after snapshots;
+trace records must establish actual gesture continuity before any fix.
+Acceleration and Wi-Fi remain unavailable; no hardware success inferred.
