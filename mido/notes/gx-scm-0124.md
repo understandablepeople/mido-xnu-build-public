@@ -79,3 +79,31 @@ mandatory, not seven independent overwrite requests. No rail votes sent.
 Synthetic tests reject bad limits, ambiguous handles and mismatched proxy
 dependencies; private actual result logs/wcnss-power-dependencies-20261106.json.
 Do not substitute the generic remoteproc example supplies for these bindings.
+
+## Full build and temporary boot result
+
+CI42260825852 for58d1561944e8fb3c739115e2687874c0f4e0cc98 PASS.
+Kernel xnu/out-0124/kernel.development.mido SHA256
+358473f8b5e627a004f2e4f73d9953fdcea00a5a3f77f75d119235d6db381232.
+Image out/gx-scm-0124-8cpu/package/mido-xnu-shim.img SHA256
+5835eafa42945d1912dc0e4e2c5713f1528ab55e0980e99b686483da8d11264d.
+CI artifact checksum matched. Exact0122 shim/DTB/ADT/memory/root/outer
+cmdline and8CPU/working edge events preserved; only inner additions
+midogpugx=1 midoscmprobe=1. Instruction scan sole0xb334d4 hit is fullK256
+data, zero actual unsupported instruction hits. Latest host preflight
+79testsPASS(oneNDKskip),4ARM64objectsPASS,ownfirmware/DTpowerplanPASS.
+Whole-repository validator still reports old patch-number gaps/threeCRLF
+scripts, not fixed or mislabeled as passing. Hostfollowup40e11a9 published
+without another kernel build.
+
+Verified one mido TWRP, stockfastboot productmido, knownlk2nd checksum,
+lk2ndRAMboot accepted, productlk2nd-msm8953,0124RAMboot accepted.
+Both boot sends and Booting responses OKAY, status0. No partition flash,
+additional rootfs modification or firmware/calibration upload. Private
+logs/gx-scm-0124-validation.json and gx-scm-0124-temp-boot-20261106.json.
+Loader acceptance only: GXon/SMC success/iOSUI not yet observed.
+
+Await physical startup, Settings/Safari/SMS, touch/sleep/CC comparison and
+returnTWRP. Pull fresh persistent log for GX exact preflight/readback,
+memacc/clamp/root/POWER_ON/BHSack and SCM ABI/availability. Do not claim
+acceleration or networking from this power/protocol discovery stage.
