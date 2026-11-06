@@ -1,0 +1,36 @@
+--- a/iokit/Kernel/arm/hid/MidoHID.cpp
++++ b/iokit/Kernel/arm/hid/MidoHID.cpp
+@@ -208,6 +208,7 @@
+ {
+ 	OSArray *clients;
+ 
++	event->setIntegerValue(kIOHIDEventFieldIsBuiltIn, TRUE);
+ 	event->setSenderID(getRegistryEntryID());
+ 	IOLockLock(_clientLock);
+ 	clients = _clients;
+@@ -435,7 +436,7 @@
+ 	setProperty("SurfaceHeight", (unsigned long long)(122 << 16), 32);
+ 	gMidoTouch = this;
+ 	registerService();
+-	IOLog("MIDO HID: touch registered\n");
++	IOLog("MIDO HID: touch registered (built-in display events)\n");
+ 	return true;
+ }
+ 
+@@ -466,6 +467,7 @@
+ 		return;
+ 	}
+ 	collection->setIntegerValue(kIOHIDEventFieldDigitizerCollection, TRUE);
++	collection->setIntegerValue(kIOHIDEventFieldDigitizerIsDisplayIntegrated, TRUE);
+ 
+ 	UInt32 cmask = 0;
+ 	for (int i = 0; i < MIDO_TOUCH_FINGERS; i++) {
+@@ -492,6 +494,8 @@
+ 				mask |= kIOHIDDigitizerEventIdentity;
+ 			}
+ 		}
++		child->setIntegerValue(kIOHIDEventFieldIsBuiltIn, TRUE);
++		child->setIntegerValue(kIOHIDEventFieldDigitizerIsDisplayIntegrated, TRUE);
+ 		child->setIntegerValue(kIOHIDEventFieldDigitizerIndex, i);
+ 		child->setIntegerValue(kIOHIDEventFieldDigitizerIdentity, i + 2);
+ 		child->setIntegerValue(kIOHIDEventFieldDigitizerTouch, d);

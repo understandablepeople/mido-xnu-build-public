@@ -1,6 +1,13 @@
 # GPU/Wi-Fi investigation after stable 0112 touch (2026-11-06)
 
-## Active: 0113 CI passed, RAM boot accepted, physical result pending
+## Active: 0113 audit verified; 0114 HID metadata candidate
+
+User confirms unchanged working UI/touch; Control Center opens only via
+AssistiveTouch. Fresh0113 log verifies complete audit,8/8 CPUs, FT5435 and
+WLED; GPU blockers1f (CX/GX off, required clocks stopped, clamps set and
+selected supply not ready). No GPU enable claimed. See hid-0114.md for
+raw snapshot and separate Built-In/DisplayIntegrated HID event correction;
+48 native tests OK, ARM64 driver compile PASS, CI/hardware test pending.
 
 See gpu-power-0113.md. Added tested mido fuse/corner voltage planning and
 an opt-in, read-only12-register GCC/GFX-LDO audit hooked to platform start.

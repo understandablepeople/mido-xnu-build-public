@@ -1,7 +1,8 @@
 # 0113: mido GPU power planning and opt-in state audit
 
 Status: full CI PASS; lk2nd and0113 RAM boot accepted by fastboot.
-Physical iOS/UI success and the runtime GPU audit log are not yet verified.
+User now confirms UI/touch unchanged; fresh recovery log verifies audit.
+Snapshot and Control Center follow-up are recorded in hid-0114.md.
 This is the first board-specific GPU bring-up stage, NOT acceleration.
 The stable 0112 image is unchanged.
 
@@ -107,16 +108,18 @@ and no root replacement. Normal iOS/persistent-console writes may occur.
 Record: logs/gpu-0113-8cpu-temp-boot-20261106.json (private, not published).
 This is loader acceptance only, not proof the kernel reached iOS.
 
-User must now check whether the usual screen/touch still work and return
-to TWRP. Pull a fresh persisted log and require MIDO GPU audit lines,
-their final no-writes marker and continued CPU/input/root progress. If no
-audit lines, do not assume an all-zero GPU state or successful execution.
-No runtime register values are known yet; do not choose rail writes blindly.
+User returned to TWRP and reports UI/touch unchanged. Fresh saved log
+logs/gpu-0113-live-20261106.txt has283525 bytes, flush436, no wrap; verifies
+8/8 CPUs, FT5435, WLED and complete GPU audit with no-writes final marker.
+GDSCR CX00222801/GX08225801, required clocks stopped, clamps set, supply
+status0; blocker mask1f. Thus the coarse power prerequisites are unmet.
+Detailed raw values and separate HID metadata correction are in hid-0114.md.
+Do not derive arbitrary rail writes or a GPU-driver claim from the snapshot.
 Keep unrelated shim/build.sh, NOTES.md, repair tools, logs, research,
 firmware/calibration and device dumps out of commits.
 
-The runtime clock/domain snapshot remains the next evidence gate. A powered-off snapshot
-is useful evidence, not a failed acceleration test. Actual regulator/RPM/
+The powered-off runtime snapshot is now verified evidence, not a failed
+acceleration test. Actual regulator/RPM/
 mem-acc and clock sequencing comes next, followed by GPU identity, reserved
 ZAP memory/SCM PAS13, isolated SMMU and CP execution. Port suitable A5xx
 command/Mesa interfaces only after those lower layers pass on this phone.
