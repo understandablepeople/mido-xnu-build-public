@@ -75,3 +75,38 @@ Private logs/0122-hfs-reader-snapshot.cjs preserves the in-memory reader.
 It is a forensic snapshot for this exact volume/catalog, NOT a general
 recovery tool: hardcoded extents, no overflow support, zero-size files need
 special handling. Revalidate device and volume before any future reuse.
+
+## Authorized vmd-only comparison boot
+
+User explicitly approved the reversible experiment. On 2026-11-06, verified
+one mido TWRP device and userdata unmounted by major:minor. Revalidated
+HFSX volume, catalog extents and exact original plist bytes. The vmd file
+is CNID172074, data extent634134, logical size3067 bytes, one4096-byte block.
+Saved original block/file, neighbor blocks, catalog record, volume and journal
+headers privately under logs/vmd-disable-20261106. Scanned17 pending journal
+transactions/279 destination blocks, checked their header checksums and
+lengths; no pending replay writes overlap the target data block. The journal
+was not replayed, cleared or modified. Launchd disabled.plist has no override
+for com.apple.voicemail.vmd.
+
+The sole semantic plist change is Disabled=true. XML was serialized with
+indentation reduced and trailing whitespace to preserve exact3067-byte
+logical size; original allocation/catalog/permissions unchanged. Wrote
+exactly one4096-byte block with fsync. Readback matched the replacement;
+both neighbor blocks, volume header and journal header remained identical.
+Parsed readback equals original dictionary plus Disabled=true.
+Original block SHA256 c3f8a821248c5ddd2ae9d29429465cbe9eb23c9d1cdbfc598a3595bd923962c6.
+Disabled block SHA256 02c5074bb8f8d27158a34bc5e7f8d52b8e53f8183c89ad4bbf1eb215069592a2.
+
+For a single-variable comparison, reused the exact0122 image, not0123.
+Known lk2nd checksum and image checksum verified, recovery->stockfastboot
+productmido->knownlk2ndRAMboot->productlk2nd-msm8953->0122RAMboot all accepted.
+No flash, other partition writes, new kernel build or GPU/Wi-Fi changes.
+Private temp-boot.json records both boot commands exit0/OKAY. Bootloader
+acceptance is not proof of iOS boot or that launchd honored Disabled.
+
+Await physical test: Settings/Safari/SMS, repeat after3-5 minutes, double
+Home, CC, touch and sleep. Then return TWRP to verify no vmd process/
+telephony XPC storm and correlate app/scene behavior in new logs. Retain
+the backup for rollback; revalidate current mapping and pending journal
+before restoring, never blindly reuse a raw offset after filesystem changes.
