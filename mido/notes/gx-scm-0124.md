@@ -66,3 +66,16 @@ SCM harness rejects any non-INFO call, checks allowed query identifiers,
 convention fallback, preserved interruption context and bounded errors.
 ARM64 MidoInput object includes both implementations. Full linked kernel
 and actual phone evidence are separate requirements before any success claim.
+
+## Own-board Wi-Fi power dependencies prepared during CI
+
+Host inspector --power-plan resolves actual regulator and clock phandles,
+validates units, limits, proxy references and shared rails without hardware
+access. Actual board: S7 RPM-level384; S2 level256..384 shared with GPU;
+L5 1.8V shared by ProntoPX/IRISdigital, L7 1.8V shared by IRISXO/proxyPLL,
+L19 1.3V RF analog and L9 3.3V PA. Five proxy clocks include XO and SCM
+core/interface/bus/source, source rate80MHz. Shared-vote aggregation is
+mandatory, not seven independent overwrite requests. No rail votes sent.
+Synthetic tests reject bad limits, ambiguous handles and mismatched proxy
+dependencies; private actual result logs/wcnss-power-dependencies-20261106.json.
+Do not substitute the generic remoteproc example supplies for these bindings.

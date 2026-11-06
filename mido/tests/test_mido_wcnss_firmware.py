@@ -41,6 +41,71 @@ class WcnssTests(unittest.TestCase):
                 "/reserved-memory/wcnss": {"phandle": cell(10), "no-map": b"",
                                             "reg": struct.pack(">QQ", 0x800000, size)}}
 
+    def power_board(self):
+        cell = lambda value: struct.pack(">I", value)
+        nodes = self.board()
+        wlan = nodes["/soc/qcom,wcnss-wlan@0a000000"]
+        pronto = nodes["/soc/qcom,pronto@a21b000"]
+        specs = [("pronto-vddmx", "smpa", 7, 384, 384, True),
+                 ("pronto-vddcx", "smpa", 2, 256, 384, True),
+                 ("pronto-vddpx", "ldoa", 5, 1800000, 1800000, False),
+                 ("iris-vddxo", "ldoa", 7, 1800000, 1800000, False),
+                 ("iris-vddrfa", "ldoa", 19, 1300000, 1300000, False),
+                 ("iris-vddpa", "ldoa", 9, 3300000, 3300000, False),
+                 ("iris-vdddig", "ldoa", 5, 1800000, 1800000, False)]
+        for index, (role, resource, number, low, high, level) in enumerate(specs):
+            handle = cell(100 + index)
+            parent = "/rpm/" + role
+            nodes[parent] = {"qcom,resource-name": resource.encode() + bytes(1),
+                             "qcom,resource-id": cell(number)}
+            node = {"phandle": handle, "qcom,set": cell(1 if index == 0 else 3),
+                    "regulator-min-microvolt": cell(low), "regulator-max-microvolt": cell(high)}
+            if level:
+                node["qcom,use-voltage-level"] = b""
+            nodes[parent + "/rail"] = node
+            wlan["qcom," + role + "-supply"] = handle
+            wlan["qcom," + role.removeprefix("pronto-") + "-voltage-level"] = struct.pack(">III", low, 0, high)
+            wlan["qcom," + role + "-current"] = cell(10000)
+        pronto["vdd_pronto_pll-supply"] = wlan["qcom,iris-vddxo-supply"]
+        pronto["vdd_pronto_pll-uV-uA"] = struct.pack(">II", 1800000, 18000)
+        names = b"xo\0scm_core_clk\0scm_iface_clk\0scm_bus_clk\0scm_core_clk_src\0"
+        pronto["clock-names"] = pronto["qcom,proxy-clock-names"] = names
+        pronto["clocks"] = b"".join(struct.pack(">II", 200, index) for index in range(5))
+        pronto["qcom,scm_core_clk_src"] = cell(80000000)
+        nodes["/clock"] = {"phandle": cell(200), "#clock-cells": cell(1)}
+        return nodes
+
+    def test_power_plan_preserves_level_vs_microvolt_units_and_proxy_references(self):
+        result = FIRMWARE.inspect_power_dependencies(self.power_board())
+        self.assertEqual(len(result["supplies"]), 7)
+        self.assertEqual(result["supplies"][0]["voltage_units"], "rpm-level")
+        self.assertEqual(result["supplies"][1]["resource_id"], 2)
+        self.assertEqual(result["supplies"][3]["voltage_units"], "microvolt")
+        self.assertEqual(result["scm_core_rate_hz"], 80000000)
+        self.assertEqual(len(result["clocks"]), 5)
+        self.assertEqual(result["shared_supply_groups"], [{"resource": "ldoa", "resource_id": 5,
+                         "roles": ["pronto-vddpx", "iris-vdddig"]}])
+        self.assertFalse(result["hardware_accessed"])
+        self.assertTrue(result["requires_shared_supply_vote_aggregation"])
+
+    def test_power_plan_rejects_bad_constraints_ambiguous_phandle_and_proxy(self):
+        nodes = self.power_board()
+        nodes["/rpm/pronto-vddcx/rail"]["regulator-max-microvolt"] = struct.pack(">I", 255)
+        with self.assertRaisesRegex(ValueError, "supply constraints"):
+            FIRMWARE.inspect_power_dependencies(nodes)
+        nodes = self.power_board()
+        nodes["/duplicate"] = dict(nodes["/rpm/iris-vddxo/rail"])
+        with self.assertRaisesRegex(ValueError, "not unique"):
+            FIRMWARE.inspect_power_dependencies(nodes)
+        nodes = self.power_board()
+        nodes["/soc/qcom,pronto@a21b000"]["vdd_pronto_pll-supply"] = struct.pack(">I", 100)
+        with self.assertRaisesRegex(ValueError, "supply differ"):
+            FIRMWARE.inspect_power_dependencies(nodes)
+        nodes = self.power_board()
+        nodes["/soc/qcom,pronto@a21b000"]["qcom,proxy-clock-names"] = b"unknown\0"
+        with self.assertRaisesRegex(ValueError, "proxy clock"):
+            FIRMWARE.inspect_power_dependencies(nodes)
+
     def test_relocation_plan_preserves_holes_and_bss_without_accessing_device(self):
         result = FIRMWARE.inspect_board(self.board(), FIRMWARE.inspect_bundle(self.directory))
         self.assertEqual(result["relocation_delta"], 0x7ff000)

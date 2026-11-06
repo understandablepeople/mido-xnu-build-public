@@ -73,7 +73,7 @@ def main():
         ("native-tests", native + ["-m", "unittest", "discover", "-s", linux_root + "/mido/tests", "-p", "test_*.py", "-v"]),
         ("arm64-objects", arm64_command(args.distribution)),
         ("gpu-firmware", [sys.executable, "-I", "tools/mido_gpu_firmware.py", "research/mido-firmware"]),
-        ("wifi-firmware-board", [sys.executable, "-I", "tools/mido_wcnss_firmware.py", "research/mido-firmware", "--dtb", "logs/twrp-live-20261104.dtb"]),
+        ("wifi-firmware-board", [sys.executable, "-I", "tools/mido_wcnss_firmware.py", "research/mido-firmware", "--dtb", "logs/twrp-live-20261104.dtb", "--power-plan"]),
         ("repository-integrity", native + [linux_root + "/tools/validate-repo.py"]),
     ]
     report = {"created_utc": datetime.now(timezone.utc).isoformat(), "checks": [],

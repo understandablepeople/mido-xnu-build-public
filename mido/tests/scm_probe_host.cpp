@@ -26,6 +26,7 @@ static void invoke(struct mido_scm_registers *state)
         }
     } else {
         assert(state->values[0] == 0xc2000601U || state->values[0] == 0x82000601U);
+        if (scenario == 2 && calls > 1) assert(state->values[0] == 0x82000601U);
         assert(state->values[1] == 1);
         uint64_t query = state->values[2];
         assert(query == 0x82000601U || query == 0x02000201U || query == 0x02000202U ||
@@ -63,6 +64,8 @@ int main()
     assert(calls == 8 && available == 0);
     reset(5); assert(mido_scm_available(0, 0x02000201, &available) == -12);
     assert(calls == 4 && delays == 4 && available == 0);
+    reset(4); mido_scm_probe(); assert(calls == 8);
+    reset(5); mido_scm_probe(); assert(calls == 4);
     reset(6); mido_scm_probe(); assert(calls == 2);
     return 0;
 }
