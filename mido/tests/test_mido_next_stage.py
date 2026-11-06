@@ -44,3 +44,12 @@ class NextStageTests(unittest.TestCase):
                             "-I", str(ROOT / "mido/gpu"),
                             str(ROOT / "mido/tests/gpu_cx_power_host.cpp"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
+
+    def test_wcnss_runtime_gates_and_never_writes_shared_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "wcnss-audit"
+            subprocess.run([shutil.which("c++"), "-std=c++14", "-Wall", "-Wextra", "-Werror",
+                            "-fsanitize=address,undefined", "-I", str(ROOT / "mido/input"),
+                            "-I", str(ROOT / "mido/wifi"),
+                            str(ROOT / "mido/tests/wcnss_audit_host.cpp"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
