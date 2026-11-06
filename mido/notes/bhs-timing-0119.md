@@ -1,5 +1,17 @@
 # 0117 hardware result;0118 BHS,0119 timing and0120 edge candidate
 
+## 0120 build and temporary boot
+
+Source692a457d8223aa8ab1e717a3580f48de9564889f; CI42233539236 PASS6m51s.
+Kernel SHA256187b9da5bb1d4437bcf2b3a3bede0ff1e68022fafb3f6866020f3f54df748997.
+Image SHA256235b1c00e535dd55ad6199c838f9f701eae73b7910346ca295167460ab1bef43.
+Exact0117 shim/DTB/ADT/memory/root preserved, only midogpubhs1 and
+midohidedge1 added. Scanner single0xb324b4 completeK256 table data hit.
+Verified recovery mido, known lk2nd temporary boot, productlk2nd-msm8953,
+candidate temporary boot all accepted; no partition flash. This is loader
+acceptance, not hardware success. Await physical UI/edge gesture check
+and recovery log for BHS results, cache timings and HID gaps/masks.
+
 ## Confirmed hardware evidence
 
 User reports0117 working as before except bottom Control Center absent.
