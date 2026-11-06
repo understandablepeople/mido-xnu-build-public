@@ -95,3 +95,17 @@ all gating failures and mapping cleanup. PAS harness additionally covers
 PAS6 unsupported while PAS13 still queried, PAS busy exhaustion, and direct
 PAS interruption exhaustion. New host tests cover shared supply constraints,
 active/sleep separation, memory edges, payload table failures and overlap.
+
+## CI source and one-pull result protocol
+
+Kernel source dbf2ee477f8e63efcf1b847faf78772c19f74414 published; one build
+CI42267277194. No runtime result until candidate image is actually booted.
+Host-only follow-up tools/mido_bringup_report.py requires a fresh single-boot
+console and checks six exact branch addresses, on/control values, bounded
+poll counts, final stage results, nonzero/non-all-ones VBIF and PAS transport
+versus support. Old0124 log deliberately reports five missing proof groups;
+never labels INFO command availability as peripheral support. All reports
+keep acceleration/network false: these are prerequisite diagnostics only.
+Final expanded host suite91 tests pass (one NDK skip); four ARM64 objects
+were already checked for the identical kernel source. No second kernel CI
+is needed for the host parser/tests/documentation follow-up.

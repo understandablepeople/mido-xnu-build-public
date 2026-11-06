@@ -1,5 +1,25 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-06:0125 source published, CI42267277194 running
+
+User authorized scoped commit/push. Kernel source
+ dbf2ee477f8e63efcf1b847faf78772c19f74414; singleCI42267277194 inprogress.
+Combined candidate: GPU sixbranches inclBIMC_GFX, specificPAS6/13 support,
+gated GPUstatus/VBIF reads, independent WiFi crypto/GPLL/votes snapshot
+beforeGPU. Host ownDT/firmware/reservation/sharedvoltageplanPASS.
+Final expanded suite91testsPASS(oneNDKskip);4ARM64objectsPASS foridentical
+kernelsource. Host-only parser/report tests followup; noadditionalkernelCI.
+Private package/boot scripts logs/package-combined-0125.py and
+boot-combined-0125.py pinCI/source/baselinehashes; notexecuted yet.
+NEXT waitCIpass,download xnu-kernel toxnu/out-0125,package/checksum/scan/
+memoryplan thenverifiedlk2ndRAMboot. Freshlogs interpretedwith
+tools/mido_bringup_report.py; old0124 correctlyfailsnewstageproofs.
+No0125boot/rootfswrite/flash yet. Keep existing8CPU/touch/sleep/CC.
+WorkingGPUacceleration/WiFinetwork notclaimed; firmware/CP/SMMU/graphics
+bridge andWLAN/DXE/network notyetimplemented. Two boots onlybatchinggoal.
+Knownoldvalidator12patchgaps/3CRLFscripts unchanged. Exclude private logs,
+firmware,unrelatedshim/build.sh/dyldtools andotherdirtyNOTES fromcommits.
+
 ## MIDO active 2026-11-06: combined0125 prepared for one CI and RAM boot
 
 User authorized scoped source commit/push after maximum compatible checks.
