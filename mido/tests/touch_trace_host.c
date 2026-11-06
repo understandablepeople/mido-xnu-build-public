@@ -1,9 +1,20 @@
 #include <assert.h>
 #include "mido_touch_trace.h"
+#include "mido_touch_edge.h"
 
 int
 main(void)
 {
+    assert(mido_touch_starts_at_edge(500, 1919));
+    assert(mido_touch_starts_at_edge(500, 1872));
+    assert(!mido_touch_starts_at_edge(500, 1871));
+    assert(mido_touch_starts_at_edge(47, 500));
+    assert(!mido_touch_starts_at_edge(48, 500));
+    assert(!mido_touch_starts_at_edge(-1, 500));
+    assert(!mido_touch_starts_at_edge(500, 1920));
+    assert(!mido_touch_starts_at_edge(1080, 500));
+    assert(mido_touch_starts_at_edge(1032, 500));
+    assert(!mido_touch_starts_at_edge(1031, 500));
     struct mido_touch_trace trace = {0};
     mido_touch_trace_update(&trace, 0, 1, 500, 1919, 1000000);
     mido_touch_trace_update(&trace, 1, 1, 510, 1600, 2000000);

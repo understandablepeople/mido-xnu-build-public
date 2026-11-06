@@ -32,6 +32,14 @@ class HIDMetadataTests(unittest.TestCase):
                             str(ROOT / "xnu/patches/0119-mido-boot-and-gesture-timing.patch")],
                            cwd=directory, capture_output=True, check=True)
             source = target.read_text()
+            subprocess.run(["git", "apply", str(ROOT / "xnu/patches/0120-mido-opt-in-edge-origin-events.patch")],
+                           cwd=directory, capture_output=True, check=True)
+            edged = target.read_text()
+            self.assertIn("fEdgeMode = 0;", edged)
+            self.assertIn("fEdgeMode == 1 && mido_touch_starts_at_edge(x, y)", edged)
+            self.assertIn("fEdge[i] ? kIOHIDDigitizerEventFromEdgeTip : 0", edged)
+            self.assertEqual((target.parent.parent / "mido_touch_edge.h").read_text(),
+                             (ROOT / "mido/input/mido_touch_edge.h").read_text())
             self.assertIn("fTraceMode = 0;", source)
             self.assertIn("fTraceMode == 1 && fTraceReports < 64", source)
             self.assertIn("if (was && !down)", source)

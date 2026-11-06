@@ -1,4 +1,4 @@
-# 0117 hardware result;0118 BHS preparation and0119 timing
+# 0117 hardware result;0118 BHS,0119 timing and0120 edge candidate
 
 ## Confirmed hardware evidence
 
@@ -63,6 +63,16 @@ short output and invalid index before writes. No private NV bytes in git.
 No SMD WCNSS channel/DXE DMA/network interface or radio startup yet.
 
 ## Validation
+
+0120 adds opt-in midohidedge=1 (default0), following the edge-origin
+event bit used by donor sweet patch0071, pinned reference commit
+6f27e41ff249f2680540ebe8ee5ab982c5e641c9. This patch was absent on
+Mido, not a repeated failed Mido test. A contact starting within48px
+of a valid1080x1920 boundary latches FromEdgeTip for its lifetime.
+Coordinates and synthesized input are unchanged. Collection inherits
+child masks. Host tests cover boundaries and canonical patch replay;
+updated MidoHID compiles for ARM64. Control Center improvement remains
+unverified until physical gestures and fresh recovery logs.
 
 66 tests PASS, one NDK skip; includes ASan/UBSan BHS pure-plan bit
 preservation65536 cases, runtime default/no-map/prerequisite gates, all12

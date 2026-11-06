@@ -1,0 +1,66 @@
+--- a/iokit/Kernel/arm/hid/MidoHID.cpp
++++ b/iokit/Kernel/arm/hid/MidoHID.cpp
+@@ -352,6 +352,7 @@
+  */
+ #define MIDO_TOUCH_FINGERS 10
+ #include "../mido_touch_trace.h"
++#include "../mido_touch_edge.h"
+ class MidoHIDTouch : public IOHIDEventService {
+ 	OSDeclareDefaultStructors(MidoHIDTouch);
+ public:
+@@ -364,6 +365,8 @@
+ private:
+ 	IOLock *fLock;
+ 	bool fDown[MIDO_TOUCH_FINGERS];
++	bool fEdge[MIDO_TOUCH_FINGERS];
++	unsigned fEdgeMode;
+ 	IOFixed fX[MIDO_TOUCH_FINGERS];
+ 	IOFixed fY[MIDO_TOUCH_FINGERS];
+ 	struct mido_touch_trace fTrace[MIDO_TOUCH_FINGERS];
+@@ -431,6 +434,11 @@
+ MidoHIDTouch::start(IOService *provider)
+ {
+ 	fTraceMode = 0;
++	fEdgeMode = 0;
++	PE_parse_boot_argn("midohidedge", &fEdgeMode, sizeof(fEdgeMode));
++	for (unsigned index = 0; index < MIDO_TOUCH_FINGERS; index++) {
++		fEdge[index] = false;
++	}
+ 	fTraceReports = 0;
+ 	PE_parse_boot_argn("midohidtrace", &fTraceMode, sizeof(fTraceMode));
+ 	fLock = IOLockAlloc();
+@@ -475,6 +483,9 @@
+ 	}
+ 	collection->setIntegerValue(kIOHIDEventFieldDigitizerCollection, TRUE);
+ 	collection->setIntegerValue(kIOHIDEventFieldDigitizerIsDisplayIntegrated, TRUE);
++	if (!was && down) {
++		fEdge[finger] = fEdgeMode == 1 && mido_touch_starts_at_edge(x, y);
++	}
+ 
+ 	UInt32 cmask = 0;
+ 	for (int i = 0; i < MIDO_TOUCH_FINGERS; i++) {
+@@ -489,7 +500,7 @@
+ 		if (!child) {
+ 			continue;
+ 		}
+-		UInt32 mask = 0;
++		UInt32 mask = fEdge[i] ? kIOHIDDigitizerEventFromEdgeTip : 0;
+ 		if (i == finger) {
+ 			if (was != down) {
+ 				mask |= kIOHIDDigitizerEventTouch | kIOHIDDigitizerEventRange;
+--- /dev/null
++++ b/iokit/Kernel/arm/mido_touch_edge.h
+@@ -0,0 +1,13 @@
++#ifndef MIDO_TOUCH_EDGE_H
++#define MIDO_TOUCH_EDGE_H
++
++#include <stdint.h>
++
++static inline int
++mido_touch_starts_at_edge(int32_t x, int32_t y)
++{
++    return x >= 0 && x < 1080 && y >= 0 && y < 1920 &&
++        (x < 48 || x >= 1032 || y < 48 || y >= 1872);
++}
++
++#endif
