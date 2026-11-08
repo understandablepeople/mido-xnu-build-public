@@ -55,7 +55,10 @@ class BridgeSourceTests(unittest.TestCase):
 
     def test_gpu_status_requires_backend_before_mapping(self):
         source = (ROOT / "mido/gpu/mido_gpu_status.h").read_text()
-        self.assertLess(source.index("if (!sweet_gpu_ready())"), source.index("ml_io_map_unmappable("))
+        # mode 1 needs the registered backend before any mapping; mode 2 is the explicit recoverable scan.
+        self.assertIn("mode != 2 && !sweet_gpu_ready()", source)
+        self.assertLess(source.index("mode != 2 && !sweet_gpu_ready()"), source.index("ml_io_map_unmappable("))
+        self.assertIn("mido_mmio_read32_nofault(", source)
 
 
 if __name__ == "__main__":

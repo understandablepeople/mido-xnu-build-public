@@ -1,0 +1,116 @@
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -4,6 +4,8 @@
+ #include "mido_cbcr.h"
+ #include "mido_gpu_backend.h"
+ 
++extern "C" int mido_mmio_read32_nofault(uintptr_t address, uint32_t *value);
++
+ static int
+ mido_gpu_status(int clocks_result)
+ {
+@@ -12,11 +14,11 @@ mido_gpu_status(int clocks_result)
+     if (mode == 0) {
+         return 0;
+     }
+-    if (mode != 1 || clocks_result != 1) {
++    if ((mode != 1 && mode != 2) || clocks_result != 1) {
+         IOLog("MIDO GPU STATUS: skipped mode=%u clocks=%d; GPU not accessed\n", mode, clocks_result);
+         return -1;
+     }
+-    if (!sweet_gpu_ready()) {
++    if (mode != 2 && !sweet_gpu_ready()) {
+         IOLog("MIDO GPU STATUS: no initialized backend; GPU not accessed\n");
+         return -6;
+     }
+@@ -47,15 +49,42 @@ mido_gpu_status(int clocks_result)
+     if (!mapping) {
+         return -4;
+     }
+-    volatile uint32_t *gpu = (volatile uint32_t *)mapping;
+-    IOLog("MIDO GPU STATUS: begin four read-only A5xx registers; no GPU writes\n");
+-    uint32_t status = MIDO_GPU_GX_LOAD(gpu + 0x4f5);
+-    uint32_t status3 = MIDO_GPU_GX_LOAD(gpu + 0x530);
+-    uint32_t ahb_error = MIDO_GPU_GX_LOAD(gpu + 0x4f4);
+-    uint32_t vbif = MIDO_GPU_GX_LOAD(gpu + 0x3000);
++    IOLog("MIDO GPU STATUS: begin recoverable scan (mode %u); reads only, no GPU writes\n", mode);
++    /* byte offsets inside 0x01c00000 (GPU) and 0x01c40000 (SMMU); one abort is recovered per read */
++    static const struct { const char *name; uint32_t base; uint32_t offset; } probes[] = {
++        {"gpu+0x0000", 0, 0x0000}, {"gpu rbbm-alwayson-lo", 0, 0x1348}, {"gpu rbbm-int0", 0, 0x1384},
++        {"gpu rbbm-status", 0, 0x13d4}, {"gpu vbif-version", 0, 0xc000},
++        {"smmu idr0", 1, 0x20}, {"smmu sCR0", 1, 0x0},
++    };
++    vm_offset_t smmu_mapping = ml_io_map_unmappable(0x01c40000, 0x1000, VM_WIMG_IO);
++    uint32_t vbif = 0xffffffffU;
++    int faults = 0, answered = 0;
++    for (unsigned index = 0; index < sizeof(probes) / sizeof(probes[0]) && faults < 6; index++) {
++        vm_offset_t base = probes[index].base ? smmu_mapping : mapping;
++        if (base == 0 || (!probes[index].base && probes[index].offset >= 0x10000)) {
++            continue;
++        }
++        uint32_t value = 0;
++        int fault = mido_mmio_read32_nofault(base + probes[index].offset, &value);
++        IOLog("MIDO GPU STATUS: %s +0x%x %s %08x\n", probes[index].name, probes[index].offset,
++            fault ? "ABORT(recovered)" : "value", fault ? 0 : value);
++        if (fault) {
++            faults++;
++        } else {
++            answered++;
++            if (probes[index].offset == 0xc000 && !probes[index].base) {
++                vbif = value;
++            }
++        }
++    }
++    if (smmu_mapping) {
++        ml_io_unmap(smmu_mapping, 0x1000);
++    }
+     ml_io_unmap(mapping, 0x10000);
+-    IOLog("MIDO GPU STATUS: rbbm=%08x status3=%08x ahb-error=%08x vbif-version=%08x; no CP/SMMU/firmware or acceleration\n",
+-        status, status3, ahb_error, vbif);
++    IOLog("MIDO GPU STATUS: scan done answered=%d aborted=%d\n", answered, faults);
++    if (faults) {
++        return -5;
++    }
+     return vbif != 0 && vbif != 0xffffffffU ? 1 : -5;
+ }
+ 
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1620,6 +1620,10 @@ handle_kernel_abort(arm_saved_state_t *state, uint32_t esr, vm_offset_t fault_ad
+ 			return;
+ 		}
+ 		panic_with_thread_kernel_state("Unaligned kernel data abort.", state);
++	} else if (fault_code == FSC_SYNC_EXT_ABORT && recover) {
++		/* MIDO: probes of possibly unpowered MMIO (mido_mmio_read32_nofault) must survive. */
++		handle_kernel_abort_recover(state, esr, fault_addr, thread);
++		return;
+ 	} else if (is_parity_error(fault_code)) {
+ #if defined(APPLE_ARM64_ARCH_FAMILY)
+ 		/*
+--- a/osfmk/arm64/machine_routines_asm.s
++++ b/osfmk/arm64/machine_routines_asm.s
+@@ -477,6 +477,24 @@ LEXT(_bcopyin)
+ 	POP_FRAME
+ 	ARM64_STACK_EPILOG
+ 
++/*
++ * int mido_mmio_read32_nofault(uintptr_t address, uint32_t *value)
++ * 0 on success, EFAULT if the load took a (recovered) synchronous external abort.
++ */
++	.text
++	.align 2
++	.globl EXT(mido_mmio_read32_nofault)
++LEXT(mido_mmio_read32_nofault)
++	ARM64_STACK_PROLOG
++	PUSH_FRAME
++	COPYIO_RECOVER_RANGE 1f
++	ldr		w8, [x0]
++1:
++	str		w8, [x1]
++	mov		x0, #0
++	POP_FRAME
++	ARM64_STACK_EPILOG
++
+ #if CONFIG_DTRACE
+ /*
+  * int dtrace_nofault_copy8(const char *src, uint32_t *dst)

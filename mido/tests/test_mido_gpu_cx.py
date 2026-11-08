@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class CxSourceTests(unittest.TestCase):
     def test_temporary_mmio_never_uses_permanent_mapping_api(self):
         for folder, name, count in (("gpu", "mido_gpu_clocks.h", 1),
-                                    ("gpu", "mido_gpu_status.h", 2),
+                                    ("gpu", "mido_gpu_status.h", 3),
                                     ("wifi", "mido_wcnss_clocks.h", 3)):
             source = (ROOT / "mido" / folder / name).read_text()
             self.assertNotIn("ml_io_map(", source, name)
