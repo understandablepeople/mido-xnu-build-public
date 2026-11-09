@@ -1,0 +1,50 @@
+--- a/iokit/Kernel/arm/mido_gpu_smmu.h
++++ b/iokit/Kernel/arm/mido_gpu_smmu.h
+@@ -51,6 +51,7 @@ mido_gpu_smmu_resume(int secure_result)
+     uint64_t id = 0;
+     int64_t transport = mido_gpu_smmu_atomic(0xc2000501U, 1, 0x01c40024, 0, &id);
+     if (transport || id > UINT32_MAX || !id || id == UINT32_MAX) {
++        IOLog("MIDO GPU SMMU: id1 read transport=%lld value=%llx; resume not attempted\n", (long long)transport, (unsigned long long)id);
+         return -3;
+     }
+     unsigned page_shift = (id & (1U << 31)) ? 16 : 12;
+@@ -58,22 +59,27 @@ mido_gpu_smmu_resume(int secure_result)
+     unsigned banks = id & 0xffU, stage2 = (id >> 16) & 0xffU;
+     if (page_shift != 12 || size != 0x10000 || !banks ||
+         banks > (size >> (page_shift + 1)) || stage2 > banks) {
++        IOLog("MIDO GPU SMMU: id1=%08x geometry rejected page_shift=%u size=%llx banks=%u stage2=%u\n", (unsigned)id,
++            page_shift, (unsigned long long)size, banks, stage2);
+         return -4;
+     }
+     uint64_t physical = 0x01c40000ULL + (6ULL << page_shift);
+     uint64_t control = 0;
+     transport = mido_gpu_smmu_atomic(0xc2000501U, 1, physical, 0, &control);
+     if (transport || control > UINT32_MAX || control == UINT32_MAX) {
++        IOLog("MIDO GPU SMMU: cb control read transport=%lld value=%llx\n", (long long)transport, (unsigned long long)control);
+         return -5;
+     }
+     uint64_t ignored = 0;
+     transport = mido_gpu_smmu_atomic(0xc2000502U, 2, physical, control & ~4ULL, &ignored);
+     if (transport) {
++        IOLog("MIDO GPU SMMU: cb control write transport=%lld\n", (long long)transport);
+         return -6;
+     }
+     uint64_t after = 0;
+     transport = mido_gpu_smmu_atomic(0xc2000501U, 1, physical, 0, &after);
+     if (transport || after > UINT32_MAX || (after & 4U)) {
++        IOLog("MIDO GPU SMMU: cb control readback transport=%lld value=%llx\n", (long long)transport, (unsigned long long)after);
+         return -7;
+     }
+     IOLog("MIDO GPU SMMU: static-CB secure resume id1=%08x control=%08x->%08x; no context/page-table/GPU access\n",
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -14,7 +14,8 @@ mido_gpu_status(int clocks_result)
+     if (mode == 0) {
+         return 0;
+     }
+-    if ((mode != 1 && mode != 2) || clocks_result != 1) {
++    /* mode 2 is read-only and abort-recovering and re-verifies GCC power/clocks below, so a failed SMMU/secure stage still gets scanned */
++    if ((mode != 1 && mode != 2) || (mode == 1 && clocks_result != 1)) {
+         IOLog("MIDO GPU STATUS: skipped mode=%u clocks=%d; GPU not accessed\n", mode, clocks_result);
+         return -1;
+     }

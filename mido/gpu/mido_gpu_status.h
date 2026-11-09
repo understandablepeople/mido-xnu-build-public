@@ -14,7 +14,8 @@ mido_gpu_status(int clocks_result)
     if (mode == 0) {
         return 0;
     }
-    if ((mode != 1 && mode != 2) || clocks_result != 1) {
+    /* mode 2 is read-only and abort-recovering and re-verifies GCC power/clocks below, so a failed SMMU/secure stage still gets scanned */
+    if ((mode != 1 && mode != 2) || (mode == 1 && clocks_result != 1)) {
         IOLog("MIDO GPU STATUS: skipped mode=%u clocks=%d; GPU not accessed\n", mode, clocks_result);
         return -1;
     }
