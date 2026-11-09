@@ -6,7 +6,7 @@
 
 typedef uintptr_t vm_offset_t;
 #define VM_WIMG_IO 7U
-static uint32_t clocks[0x8000 / 4], gpu[0x10000 / 4], crypto[1024], votes[1024], pll[1024];
+static uint32_t clocks[0x8000 / 4], gpu[0x40000 / 4], crypto[1024], votes[1024], pll[1024];
 static unsigned mode, maps, unmaps, fail_map, gpu_reads, wifi_reads;
 static bool gpu_mode;
 static bool backend_ready;
@@ -29,7 +29,7 @@ static vm_offset_t ml_io_map_unmappable(vm_offset_t address, size_t bytes, unsig
     if (gpu_mode) {
         if (address == 0x01858000) { assert(bytes == sizeof(clocks)); target = clocks; }
         else if (address == 0x01c40000) { assert(bytes == 0x1000 && 0x1000 <= sizeof(smmu_window)); target = smmu_window; }
-        else { assert(address == 0x01c00000 && bytes == 0x10000 && sizeof(gpu) >= 0x10000); target = gpu; }
+        else { assert(address == 0x01c00000 && bytes == 0x40000 && sizeof(gpu) >= 0x40000); target = gpu; }
     } else {
         assert(bytes == 4096);
         if (address == 0x01816000) target = crypto;
@@ -41,7 +41,7 @@ static vm_offset_t ml_io_map_unmappable(vm_offset_t address, size_t bytes, unsig
 static void ml_io_unmap(vm_offset_t address, size_t bytes)
 {
     if (gpu_mode) assert((address == (vm_offset_t)clocks && bytes == sizeof(clocks)) ||
-        (address == (vm_offset_t)gpu && bytes == 0x10000) ||
+        (address == (vm_offset_t)gpu && bytes == 0x40000) ||
         (address == (vm_offset_t)smmu_window && bytes == 0x1000));
     else assert(bytes == 4096 && (address == (vm_offset_t)crypto || address == (vm_offset_t)votes || address == (vm_offset_t)pll));
     unmaps++;

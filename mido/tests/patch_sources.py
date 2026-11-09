@@ -34,7 +34,8 @@ def kernel_source(root, name, base):
                       "0131-mido-secure-restore-and-pronto-loader.patch",
                       "0132-mido-pronto-private-bundle-and-memory-adapter.patch",
                       "0134-mido-recoverable-gpu-mmio-scan.patch",
-                      "0135-mido-smmu-failure-diagnostics-and-scan-after-failure.patch"):
+                      "0135-mido-smmu-failure-diagnostics-and-scan-after-failure.patch",
+                      "0136-mido-gpu-secure-state-and-smmu-stream-scan.patch"):
             if later <= base:
                 continue
             subprocess.run(["git", "apply", "--include=" + relative,

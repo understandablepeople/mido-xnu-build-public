@@ -112,3 +112,27 @@ not only a successful firmware load. Keep it a separate bring-up track.
 Control Center requires edge-coordinate/event-mask/UI-policy investigation;
 Phone black screen needs its own process log, not a GPU diagnosis by default.
 No new phone commands, reboot or flash during this source investigation.
+
+## 2026-11-09: what the Pixel 1 and the Android tree say about the next GPU steps
+
+Evidence read today: joranv1/ios-sailfish patches 0119-0132 (Adreno 530, same A5xx
+family), Android msm8953 kgsl (a5xx_microcode_load, kgsl_pwrctrl_enable), mido live DT.
+
+- SMMU: Pixel 1 found that the firmware ignores CLIENTPD and starts the stream as
+  FAULT; the first CP fetch reset the phone. Fix there: own page table, context
+  bank 0, S1 AArch64 4KB, identity map, SMR0 = stream 0 only (stream 2 is TZ's
+  secure stream: an SMR matching every stream stalled the CPU).
+- mido live SMMU (0135 log): sCR0=00200436, IDR0=78014404 (NUMSMRG=4). mido DT has
+  qcom,enable-static-cb and qcom,skip-init: static context banks, TZ-owned.
+  The SCM id1 read (0xc2000501) returned 0, so the resume path in 0131 is unproven.
+- Secure mode: Pixel 1 GPU starts in secure mode, RB writes nothing to normal
+  memory, leaving it needs the ZAP shader through PAS. mido: DT kgsl-hyp pas-id 13
+  firmware a506_zap, memory-region gpu_region@0 (shared-dma-pool, 8 MiB, alloc-range
+  0x80000000-0x90000000). Our 0125-0130 logs already show PAS13 supported=1.
+- CP microcode: Android a5xx_microcode_load writes PM4/PFP *GPU addresses* into
+  CP_*_INSTR_BASE; the CP DMA-fetches the firmware through the SMMU. So CP start
+  needs a working SMMU context first. Without it the first CP fetch can reset the
+  phone (Pixel 1 experience).
+- Therefore the next run is a READ-ONLY state scan (patch 0136): sCR1/2, SMR0-3,
+  S2CR0-3, sGFSR, plus GPU SECVID_TRUST_CNTL, CP_CNTL, CP_ME_CNTL, ADDR_MODE. These
+  decide SMMU design and whether secure mode is active. No CP start yet.

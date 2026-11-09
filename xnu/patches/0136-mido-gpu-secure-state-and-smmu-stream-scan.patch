@@ -1,0 +1,49 @@
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -46,7 +46,7 @@ mido_gpu_status(int clocks_result)
+         IOLog("MIDO GPU STATUS: power/clocks changed; GPU not accessed\n");
+         return -3;
+     }
+-    vm_offset_t mapping = ml_io_map_unmappable(0x01c00000, 0x10000, VM_WIMG_IO);
++    vm_offset_t mapping = ml_io_map_unmappable(0x01c00000, 0x40000, VM_WIMG_IO);
+     if (!mapping) {
+         return -4;
+     }
+@@ -54,15 +54,24 @@ mido_gpu_status(int clocks_result)
+     /* byte offsets inside 0x01c00000 (GPU) and 0x01c40000 (SMMU); one abort is recovered per read */
+     static const struct { const char *name; uint32_t base; uint32_t offset; } probes[] = {
+         {"gpu+0x0000", 0, 0x0000}, {"gpu rbbm-alwayson-lo", 0, 0x1348}, {"gpu rbbm-int0", 0, 0x1384},
+-        {"gpu rbbm-status", 0, 0x13d4}, {"gpu vbif-version", 0, 0xc000},
+-        {"smmu idr0", 1, 0x20}, {"smmu sCR0", 1, 0x0},
++        {"gpu rbbm-status", 0, 0x13d4}, {"gpu rbbm-status3", 0, 0x14c0}, {"gpu rbbm-ahb-err", 0, 0x13d0},
++        {"gpu vbif-version", 0, 0xc000}, {"gpu rbbm-clock-cntl", 0, 0x019c}, {"gpu rbbm-int0-mask", 0, 0x00e0},
++        {"gpu secvid-trust-cntl", 0, 0x3d000}, {"gpu secvid-tsb-cntl", 0, 0x3e00c},
++        {"gpu cp-cntl", 0, 0x20c4}, {"gpu cp-me-cntl", 0, 0x20c8}, {"gpu cp-addr-mode", 0, 0x2180},
++        {"gpu cp-rb-base", 0, 0x2000}, {"gpu cp-rb-rptr", 0, 0x2018}, {"gpu cp-rb-wptr", 0, 0x201c},
++        {"gpu cp-pfp-base", 0, 0x20d4}, {"gpu cp-pm4-base", 0, 0x20e0}, {"gpu cp-int-status", 0, 0x2c60},
++        {"smmu sCR0", 1, 0x00}, {"smmu sCR1", 1, 0x04}, {"smmu sCR2", 1, 0x08}, {"smmu sACR", 1, 0x10},
++        {"smmu idr0", 1, 0x20}, {"smmu idr1", 1, 0x24}, {"smmu idr2", 1, 0x28},
++        {"smmu sGFSR", 1, 0x48}, {"smmu sGFSYNR0", 1, 0x50},
++        {"smmu smr0", 1, 0x800}, {"smmu smr1", 1, 0x804}, {"smmu smr2", 1, 0x808}, {"smmu smr3", 1, 0x80c},
++        {"smmu s2cr0", 1, 0xc00}, {"smmu s2cr1", 1, 0xc04}, {"smmu s2cr2", 1, 0xc08}, {"smmu s2cr3", 1, 0xc0c},
+     };
+     vm_offset_t smmu_mapping = ml_io_map_unmappable(0x01c40000, 0x1000, VM_WIMG_IO);
+     uint32_t vbif = 0xffffffffU;
+     int faults = 0, answered = 0;
+-    for (unsigned index = 0; index < sizeof(probes) / sizeof(probes[0]) && faults < 6; index++) {
++    for (unsigned index = 0; index < sizeof(probes) / sizeof(probes[0]) && faults < 12; index++) {
+         vm_offset_t base = probes[index].base ? smmu_mapping : mapping;
+-        if (base == 0 || (!probes[index].base && probes[index].offset >= 0x10000)) {
++        if (base == 0 || (!probes[index].base && probes[index].offset >= 0x40000)) {
+             continue;
+         }
+         uint32_t value = 0;
+@@ -81,7 +90,7 @@ mido_gpu_status(int clocks_result)
+     if (smmu_mapping) {
+         ml_io_unmap(smmu_mapping, 0x1000);
+     }
+-    ml_io_unmap(mapping, 0x10000);
++    ml_io_unmap(mapping, 0x40000);
+     IOLog("MIDO GPU STATUS: scan done answered=%d aborted=%d\n", answered, faults);
+     if (faults) {
+         return -5;
