@@ -1,0 +1,18 @@
+{
+ "ci": 42674464439,
+ "image": "out/gpu-0135-secure-smmu-8cpu",
+ "result": "GPU and SMMU register space reachable after secure restore",
+ "values": {
+  "gpu+0x0": "0x32",
+  "alwayson_lo": "0x36c72 (counter running)",
+  "rbbm_int0": "0",
+  "rbbm_status": "0x1",
+  "vbif_version": "0x200d0000",
+  "smmu_idr0": "0x78014404",
+  "smmu_sCR0": "0x00200436"
+ },
+ "smmu_resume": "-3: SCM id1 read transport=0 value=0",
+ "answered": 7,
+ "aborted": 0,
+ "hardware_gpu_rendering": false
+}

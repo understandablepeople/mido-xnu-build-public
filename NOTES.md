@@ -1,5 +1,53 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-09:0135 GPU REGISTERS ANSWER on mido (first time); no rendering yet
+
+RAM-boot of CI 42674464439 image gpu-0135-secure-smmu-8cpu: with midogpusecure=1
+(SCM restore device18 ctx0 transport0 secure0) the recoverable scan (midogpustatus=2,
+patch0134 nofault abort recovery) read ALL SEVEN probes without abort:
+gpu+0x0=0x32 alwayson_lo=0x36c72 (running counter) rbbm_int0=0 rbbm_status=0x1
+vbif_version=0x200d0000 smmu_idr0=0x78014404 smmu_sCR0=0x00200436 (0x01c40000).
+Before secure restore (0134 run, same clocks/power) every read aborted: secure
+restore is the missing prerequisite. SMMU resume still fails: id1 read via SCM
+returned transport0 value0 (-3); not needed to read registers, needed for CP DMA.
+8 CPUs up, no panic, UI works. NOT proof of command processor, firmware load,
+ZAP, page tables or rendering. Log logs/gpu-0135-live-20261109.txt.
+Next: A506 CP bring-up (PM4/PFP microcode, ring, ME_INIT) + SMMU path.
+
+## MIDO active 2026-11-07:0133 IRIS/XO code wired, NOT hardware-tested
+
+Implemented actual opt-in midowifiiris=1 startup call after supply/XO votes.
+Own Pronto PMU reset/read/configure uses bounded waits, known chip IDs, no
+invalid-ID fallback; 48MHz and 19.2MHz paths implemented. 19.2MHz uses own
+rf_clk2 buffer resource5 with acknowledged active/sleep RPM software-enable.
+Runtime requires successful power vote, valid legacySMEM, absentWCNSS_CTRL,
+oneclaim latch and initialPMU0. No channel is NOT proof processor stopped.
+Only PMU/IRIS page mapped temporarily, cleanup all paths, no NV capability
+advertisement, no guessed rollback/retry and NO PAS/WLAN backend ready claim.
+Real board caller for IRIS now exists; mido_pronto_boot STILL has no caller.
+Final logs/preflight-0133-final-20261107/report.json:121tests OK(1NDKskip),
+20ARM64objects PASS, ownfirmware/DT/combinedplan PASS. Same12historical patch
+gaps and3unrelatedCRLFshell errors keep aggregateFAIL. No full link/CI/push,
+boot/device write. Changes remain uncommitted; unrelated dirtywork preserved.
+Patch0133 replays canonical Input+headers. See mido/notes/pronto-iris-0133.md.
+Next proxycrypto clocks/APowned busQoS/lifetime+actualreadiness+PAS caller,
+then SMD/NV/DXE/WLAN. IRIS hardware outcome and GPU remain unproven.
+
+## MIDO audit 2026-11-07: production driver wiring still absent
+
+Rechecked HEAD 2ade41e and the current working tree. mido_pronto_boot has
+only its declaration and definition, no production caller. GPU and WLAN
+backend registration calls exist only in host tests. Existing frontend and
+PAS helper code therefore must not be described as working hardware drivers.
+adb get-state returned recovery. No build, reboot, device write or hardware
+success occurred during this audit. The 0130 log currently on disk is 243031
+bytes; do not reuse a previous summary's different length/hash without checking.
+Next meaningful implementation is real Pronto IRIS/proxy-clock/bus ownership
+and startup integration, then SMD/NV/DXE; GPU still needs A506 command submission,
+memory/fences and the userspace rendering path. These are not a flag-only fix.
+Do not spend another CI/boot on unchanged or uncalled helpers. Unrelated dirty
+NOTES/shim/dyld/log work remains untouched apart from this handoff entry.
+
 ## MIDO active 2026-11-07:0132 private firmware handoff and real memory adapter
 
 Implemented private binarybundle -> copiedpayloadADT -> boundedkernelparser
@@ -157,7 +205,6 @@ DonotbootinactivebridgesorclaimGPU/WiFiworks. NofullCIuntilusefulphysical
 backendcandidate;donottransplantA530powerthreadorQCA6174/ath11kradio.
 Keepunrelatedshim/build.sh,dyldtools,privatelogsandoldNOTESeditsunstaged.
 
-
 ## MIDO active 2026-11-06: donor reuse prepared; GPU frontend ARM64 compile PASS
 
 User confirms safe0127 works. No fresh runtime capture; keep GPU MMIO disabled.
@@ -183,7 +230,6 @@ NEXTtraceownDTbusvote/resourcesandfullpreMMIOcontract;stagepinned
 IONetworking offline/extractApple80211dispatcher;reusefrontends,notradio.
 NoGPUacceleration/WiFinetworkclaim. Preserveexistingtouch/display/8CPU.
 
-
 ## MIDO active 2026-11-06:0127 GPU external abort; safe temporary boot accepted
 
 User panic photo resolves against exact0127 kernel: PCfffffff007a6a638,
@@ -208,7 +254,6 @@ bus/security/reset prerequisites before any further GPU MMIO. Do not re-enable
 midogpustatus=1 on hardware: source still contains unsafe opt-in probe.
 ml_probe_read is unimplemented here; ml_nofault_copy is not MMIO fault recovery.
 GPU acceleration and WiFi network remain unimplemented, not fixed by this boot.
-
 
 ## MIDO active 2026-11-06:0127 NoC fix CI PASS, temporary boot accepted
 
@@ -238,6 +283,22 @@ startuporWLANnetwork;GPUbackend/graphicsbridgestillnotimplemented.
 Keepprivatefirmware/logs,unrelatedshim/build.sh/dyldtools/otherNOTESunstaged.
 
 ## MIDO active 2026-11-06: fresh0126 PAS6/13 yes;0127 NoC status fix ready
+
+UPDATE:CI42275190305PASS exacta12ac37,artifactchecksummatched.
+Kernel xnu/out-0127/kernel.development.mido SHA256
+fbfd3cc7df8d51bf08e88b039ddada2e494c941c354abd269141ac327a93541b.
+Image out/cbcr-0127-8cpu/package/mido-xnu-shim.img SHA256
+3787e842c7565daea8d53eb7dd802532bfbc3b75169b007ebde8fcd03d5faf72.
+2293760wordsscan,sole0xb33c14fullK256data,zeroactualunsupportedhits.
+Baseline/8CPU/CC/exactcombinedflagspreserved;memoryplanPASS.
+Private logs/cbcr-0127-validation.json. Verifiedlk2ndtemporarybootnext,
+no0127runtimeproofyet. CIwatchnetworkerrorwasmonitoronly;APIconfirmsPASS.
+
+UPDATE: sourcea12ac37150d8bae6da60bc011103d217cadd3103 committed/pushed;
+singleCI42275190305inprogress. Privatepackage/boot scripts
+logs/package-cbcr-0127.py andboot-cbcr-0127.py pinCI/source/baselinehashes,
+same0126combinedflags. Notexecutedyet. Nofirmware/radiowrites or0127boot
+untilCIpass/checksums. Patchblankcontextspacesaredata,notcodechanges.
 
 Read-onlyTWRPpull logs/mmio-0126-live-20261106.txt FRESH308360bytes/flush447,
 SHA25bd9a6459df2d40efae3b6b5643f3c02a8be2a0d0a679b7252e8a4536b09cd8.
@@ -288,6 +349,23 @@ unrelatedshim/build.sh/dyldtoolsandotheraccumulatedNOTESeditsunstaged.
 
 ## MIDO active 2026-11-06:0125 panic confirmed;0126 MMIO lifetime fix ready
 
+UPDATE: CI42270008073PASS exactsource54f6489;artifactchecksumverified.
+Kernel xnu/out-0126/kernel.development.mido SHA256
+f8ac2b0ba906939acbaf3c48a053bf1b2a74479f3d515dd30a3bc51521abe1ed.
+Image out/mmio-0126-8cpu/package/mido-xnu-shim.img SHA256
+d1fb37e0114bd7e603e5009939d3fb626b99b9eb864ace000cceaf3b750c25c7.
+Preservedbaseline/8CPU/CC/exact0125combinedflags;memoryplanPASS;
+sole0xb33bb4completeK256data,zeroactualunsupportedinstructionhits.
+Private logs/mmio-0126-validation.json. Verifiedlk2ndtemporarybootnext;
+no0126runtimeproofuntilphysicaltest/freshlog.
+
+UPDATE: source54f64890515d3f9d92b56e2786cbb9cf5972b4e1 committed/pushed,
+singleCI42270008073inprogress. CorrectAPI symbol verifiedpresent in0125
+kernel. Private logs/package-mmio-0126.py andboot-mmio-0126.py pinCI/
+source/baselinehashes; preserveexact0125combinedflags,notexecutedyet.
+No0126imageorbootuntilCIpass. Patchline12 containsblankcontextspace,
+notcodechange; noextraCIjustforcontextformatting.
+
 User photo shows vm_map_delete permanent-entry panic. Exact0125symbols:
 vm_map_delete->vm_map_remove_and_unlock->kmem_free_guard->
 MidoInput::touchRails+6a4->touchSetup->initialize->poll. Introducedbug:
@@ -331,6 +409,17 @@ logs,unrelatedshim/build.sh/dyldtools orallaccumulatedlocalNOTES.
 
 ## MIDO active 2026-11-06:0125 source published, CI42267277194 running
 
+UPDATE: CI42267277194 PASS exactdbf2ee4,artifactchecksum matched.
+Kernel xnu/out-0125/kernel.development.mido SHA256
+2863f5acd05b6f8db0ac24113e78f8ec898510ae762913d82a2b23c89a6eda11.
+Image out/combined-0125-8cpu/package/mido-xnu-shim.img SHA256
+3dbd674bd130272affe4ddff16efbf7976e31a69981af1c3d7ecb9b85a3f1051.
+Scanner2293760words,sole0xb33b94completeK256data,zeroactualunsupportedhits.
+Preservedshim/DTB/ADT/memory/root/8CPU/CC;newargs midogpuclocks1
+midogpustatus1 midowificlocks1; freshpackagedmemoryplanPASS.
+Private logs/combined-0125-validation.json. NEXT verifiedlk2ndRAMboot,
+thenphysicalUIandreturnTWRPforfreshcombinedlog. No0125runtimeproofyet.
+
 User authorized scoped commit/push. Kernel source
  dbf2ee477f8e63efcf1b847faf78772c19f74414; singleCI42267277194 inprogress.
 Combined candidate: GPU sixbranches inclBIMC_GFX, specificPAS6/13 support,
@@ -351,6 +440,14 @@ firmware,unrelatedshim/build.sh/dyldtools andotherdirtyNOTES fromcommits.
 
 ## MIDO active 2026-11-06: combined0125 prepared for one CI and RAM boot
 
+UPDATE: scoped source committed/pushed dbf2ee477f8e63efcf1b847faf78772c19f74414.
+Single CI42267277194 inprogress. Final native87testsPASS(oneNDKskip);
+3Windows reconstruction/order testsPASS afterblankcontextpatchcleanup.
+Private package/boot scripts logs/package-combined-0125.py and
+boot-combined-0125.py pinCI/source/baselinehashes; notexecuted yet.
+NEXT waitCIpass,download xnu-kernel toxnu/out-0125,package/checksums/
+instruction scan/memoryplan thenverifiedlk2ndRAMboot. No0125boot yet.
+
 User authorized scoped source commit/push after maximum compatible checks.
 Predecessor0124 hardware: CX/GX POWER_ON, BHSack, coarse clocks blocker04;
 SCM64 INFO/PAS handler availability verified; no acceleration/network yet.
@@ -368,6 +465,591 @@ checksums; noflash/rootfs changes. GPU MMIO onlyafterallprerequisites and
 entrymarker; hardwarebusstall cannotbe timedout insoftware. Two boots is
 batching goal, NOT driver completion promise. Keep private logs/firmware,
 unrelated shim/build.sh/dyldtools and other accumulatedNOTES edits unstaged.
+
+## LATEST 2026-11-06:0124 hardware GX/BHS and SCM64 verified
+
+UPDATE: local0125 candidate prepared, NOT committed/pushed/built/booted.
+Patch xnu/patches/0125-mido-gpu-branches-and-pas-support.patch adds
+opt-in midogpuclocks1 six GCCbranch enables with strict power/root gates,
+readback/poll bounds and mapping cleanup; GPU registers untouched.
+SCM adds yielding PAS_SUPPORTED6/13 aftercommand7availability; noauth.
+OwnDT confirms GCC/GFXboth01800000+80000 andKGSLsixclocknames.
+Details mido/notes/branches-pas-0125.md andruntime-0124.md.
+Preflight logs/preflight-20261106T175028Z:80testsPASS(oneNDKskip),
+4ARM64objectsPASS,firmware/ownboardpowerplanPASS,recoveryreadsPASS.
+Extra source reconstruction testPASS afteraddingnewheader; gitdiffcheckPASS.
+Initialpreflight174942Zfailedmissingml_io_unmapdeclaration, fixedincludeorder.
+Oldvalidator12patchnumbergaps/3CRLFscripts remain; notallgreen.
+No newCI/image or device writes/reboot. CurrentphoneTWRP.
+NEXT needs explicit user permission to commit/push scoped source forCI;
+developer forbids committing without explicit user request. Do notstage
+wholeNOTES(unrelated accumulated edits),shim/build.sh,private logs/firmware,
+orunrelated dyldtools. Afterpermission sourcecommit+singleCI thenpackage
+preserved0124baseline plus midogpuclocks1,verifiedlk2ndRAMboot only.
+Require actual branch/PAS runtime before claiming success.
+
+Fresh TWRP read-only logs/gx-scm-0124-live-20261106.txt:254533bytes,
+flush277. CX a0222800, GX a0225800 POWER_ON polls1; root2, clamp1100,
+supply-status3 proves BHS ack. Coarse blockers04: branch clocks remain.
+SCM64 INFO self-query and PAS command1/2/5/6/7 availability all result0,
+available1. Not yet specific PAS6/13 support, firmware auth or networking.
+WCNSS_CTRL edge6 absent. execvmd681351ms still present: no causal claim
+for plist disable; Preferences751192ms/MobileSMS810246ms executed.
+NEXT gated branch clocks (include previously omitted BIMC_GFX59034),
+bounded PAS_SUPPORTED6/13 queries; no GPU MMIO until prerequisites known.
+Phone TWRP; no new device writes/boot/rootfs changes during this read.
+
+## Previous 2026-11-06:0124 CI PASS and candidate verified; RAMboot next
+
+UPDATE: oneTWRPmido->stockfastbootmido->verifiedlk2ndRAMboot->
+productlk2nd-msm8953->0124RAMboot bothOKAYexit0. NOflash/rootfsrewrite.
+Await physicalstartup/UI thenreturnTWRP forfreshGX/SCMlogs.
+Kernel source58d1561944e8fb3c739115e2687874c0f4e0cc98;CI42260825852PASS.
+Hostfollowup40e11a9(powerdependencies/tests only),79tests(oneNDKskip)/
+4ARM64objectsPASS,firmwarechecksPASS; oldrepovalidatorfailures unchanged.
+Kernel xnu/out-0124/kernel.development.mido SHA256
+358473f8b5e627a004f2e4f73d9953fdcea00a5a3f77f75d119235d6db381232.
+Image out/gx-scm-0124-8cpu/package/mido-xnu-shim.img SHA256
+5835eafa42945d1912dc0e4e2c5713f1528ab55e0980e99b686483da8d11264d.
+CIchecksumverified; preserved0122shim/DTB/ADT/memory/root/8CPU/CC,only
+newargs midogpugx1 midoscmprobe1. Scanner sole0xb334d4 fullK256data,
+zeroactualunsupportedhits. Private logs/gx-scm-0124-validation.json.
+NEXT RAMboot viaverifiedlk2nd with logs/boot-gx-scm-0124.py; noflash.
+Need physicalUIandTWRPlog: GPU GXmemacc/root/POWER_ON/BHSack/readbacks,
+SCMINFO ABI/PAScommandavailability/errors, vmd/app/touch/sleep/CCcheck.
+NoGPUacceleration,CPexecution,firmwareauth orWiFinetwork claimed.
+
+## LATEST 2026-11-06: apps working after5min;0124 GX/SCM candidate prepared
+
+User reports apps work after5min. FreshTWRP log311202bytes/flush437
+logs/vmd-disabled-live-20261106.txt nevertheless contains execvmd686410ms,
+Preferences723910ms,MobileSMS859402ms: Disabled=true didNOTprovevmdabsent;
+causal attribution unknown. Noadditionalrootfschanges.
+0124 adds opt-in midogpugx1 gatedafterCXpower/BHS success: initialcorner4
+memacc2bit0clear0194415c,clampbit0clear0185b00c,forceXOroot01859000,
+GXcollapseclear0185901c; fourwritesonly/readbacks/1000pollbounds/BHSack.
+NoGPUregister/branchclock/PLL/SMMU/SCMwrites oracceleration.
+midoscmprobe1 INFO-only ABI/PAS-commandavailability (notPASexecution);
+boundedinterrupt/busy/SMC64then32, nofirmware/radiowrites.
+PinnedAndroidreference andownDT used. Details mido/notes/gx-scm-0124.md.
+LocalGX/SCM sanitizer testsPASS; fullpreflight running, CI/image notyet.
+UPDATE: preflight logs/preflight-20261106T172001Z:77testsPASS(oneNDKskip),
+4ARM64objectsPASS,firmwarechecksPASS,recoveryreadchecksPASS; oldrepo
+integrity failures unchanged. Source58d1561944e8fb3c739115e2687874c0f4e0cc98
+pushed; singleCI42260825852 running. No0124image/bootuntilfullCIpasses.
+UPDATE: ownboard WiFi supply/clock inspector committed/pushed40e11a9
+(hostonly,no additionalCI). Finalpreflight logs/preflight-20261106T172446Z:
+79testsPASS(oneNDKskip),4objectsPASS,ownfirmware/boardpowerplanPASS.
+SinglekernelCI42260825852 remains forsource58d1561. Package/boot scripts
+logs/package-gx-scm-0124.py and boot-gx-scm-0124.py requireCIpass/checksums.
+
+## LATEST 2026-11-06: user approved vmd-only disable, verified; same0122 boot next
+
+UPDATE: same0122RAMboot completed successfully through verifiedlk2nd;
+both sends/bootsOKAY exit0. User physicaltest required; noUI result yet.
+Private report logs/vmd-disable-20261106/temp-boot.json.
+User explicitly confirmed reversible disable. One TWRPmido,userdata
+mmcblk0p49 unmounted verified by major:minor. HFSX catalog/file identity
+unchanged. Saved original3067byteplist and4096byteblock plus neighbors/
+catalogrecord/volume/journalheaders under private logs/vmd-disable-20261106.
+Added ONLY semantic Disabled=true to com.apple.voicemail.vmd plist;
+same3067bytefile/sameCNID172074/sameextent634134, XML padding.
+Pending journal17transactions279blocks scanned read-only;no targetoverlap.
+Wrote exactly1block bs4096 seek634134 count1 convnotrunc,fsync;readback
+matches02c5074bb8f8d27158a34bc5e7f8d52b8e53f8183c89ad4bbf1eb215069592a2.
+OriginalblockSHA c3f8a821248c5ddd2ae9d29429465cbe9eb23c9d1cdbfc598a3595bd923962c6.
+Neighbors/volumeheader/journalheader unchanged; parsedreadback differs
+ONLY Disabled=true. Launchd override file has no vmd entry. NO other
+partition orFSmetadata changed. Plan same0122image/8CPU/CC working, not
+new0123kernel: isolate single variable. Bootscript logs/boot-vmd-disabled-
+20261106.py; separate report avoids overwriting previousboot evidence.
+Need physical UI test aftertemporaryboot thenTWRP freshlogs:confirmvmd
+absent/noXPCstorm,apps afterseveralminutes,doubleHome,CC,touch/sleep.
+No claim of fix untiltest. RestoreONLY frombackup after revalidating
+freshdevice/volume/catalog/extent/journal;never blindrawrestore afterchanges.
+
+## LATEST 2026-11-06:0122 app stall investigated read-only;0123 CX fix staged
+
+Task-only local commit906d19f; not pushed, no newCI scheduled.
+Current TWRP; no reboot/device writes this investigation. Preferences exec
+748932ms and launchd successfully spawned PID257; no app exit observed.
+SBSwitcher unbalanced appearance warning is clue only. Old Preferences
+watchdog PID1026/SpringBoard987 is NOT this boot (SpringBoard26).
+Read-only HFSX targeted extraction decoded actual unified logs locally:
+vmd224 produced200544 records in5.30s of latestPersist interval, repeating
+invalid telephonyXPC/4099; sampledCPU not available, causal link to app
+stall not proven. Persisted decoded intervals stop559.67s BEFORE app exec.
+Next controlled experiment: reversible disable ONLY com.apple.voicemail.vmd
+with backup after explicit rootfs-write confirmation; not done yet.
+0122CX actuala0222800 hasPOWER_ON;0123 fixes writable-field comparison
+mask00fff007, keeps mismatch rejection/timeout/oneCXwrite. NoGX/clocks.
+Local75tests(oneNDKskip),4ARM64objects,firmwarechecksPASS; oldrepo validator
+failures remain. No0123CI/image/boot. CC untouched, GPU/WiFi unfinished.
+Details mido/notes/runtime-0122.md; private evidence logs/0122-* and
+logs/preflight-20261106T164227Z. HFS reader snapshot exactvolume only.
+
+## LATEST 2026-11-06:0122 fixed CI PASS; combined diagnostic RAMboot accepted
+
+Sourcebd16945a04e99ed38077e00fdd768727677652ac;CI42248229643 PASS8m1s.
+Kernel xnu/out-0122/kernel.development.mido SHA256
+c99700d78cb9d0621785ac8e4d040d191435d2db4c3d6df4ff86d9ab2e858288.
+Image out/cx-power-0122-8cpu/package/mido-xnu-shim.img SHA256
+9238b514fc6d7fffd641f70d8283460ca1371c264a05ae26e98c7968f3c9644e.
+CIchecksum verified;exact0120shim/DTB/ADT/memory/root/outercmdline kept,
+only newargs midogpucxpower1 midowifiaudit1 midospawndiag1.8CPU and
+working0120edgeflag kept. Scanner only0xb32d54 fullK256data;zero actual
+unsupportedinstructionhits. Verified oneTWRPmido;stockproductmido,known
+lk2ndRAMbootaccepted,productlk2nd-msm8953,candidateRAMbootaccepted.
+No partitionflash/rootrewrite. Private logs/cx-power-0122-validation.json
+and cx-power-0122-temp-boot-20261106.json. Loaderacceptance ONLY, not UI
+or GPU/WiFi success. Need user waitboot,confirmCC,trySettings/Safari/SMS
+onceeach with20-30s gap (doiconsdarken/no window?),touch/WLEDcheck,then
+returnTWRP. Pullfreshpersistedlog:CXpowerresult/readback/timeout and
+snapshot, WCNSS_CTRL discovery result/cid, originalspawnerrno/path and
+app exec/crash. If noSPAWNerrors/app exec, cause stilluserspace unknown.
+Do not claim acceleration/WiFi enabled or appregressionfixed.
+
+## LATEST 2026-11-06: runner works;0122 C-label compatibility fixed, CI next
+
+User requested another build. CI42240304550 attempt3 acquiredrunner and
+compiled7m54s, FAILED kern_exec.c4207 expectedexpression: diagnostic
+declaredstatic directly after bad: label (not valid beforeC23). Newer
+localclangaccepted it, CIcompiler didnot. This is OURsourcebug, unlike
+first2 allocationfailures. Wrapped diagnostic in compoundstatement,
+keptoriginalerrno/paths/security unchanged. Added regressiontest requiring
+statementblock afterlabel. Hostbatch logs/preflight-20261106T155916Z:
+native suitePASS(75tests oneNDKskip),4ARM64objectsPASS, firmwarechecksPASS;
+oldrepo integrity failures remain unrelated. Next commitfix/push/newCI.
+Phone stillTWRP, no candidateimage/newboot. Never boot failedCIartifacts.
+
+## LATEST 2026-11-06: batched checks completed; app press feedback clarified
+
+User: icons darken on press but no app window opens. Not proven crash;
+launch rejection/cancellation cause still unknown. Preserve workingCC.
+Added tools/mido-preflight.py: parallel native suite/4ARM64 objects/own
+GPU+WCNSS firmwareDT validation/repo integrity/optional read-only recovery
+ring+dmesg. No CI, downloads, reboot, flashing, debugfs/MMIO or radio scan.
+New WCNSS runtime gate/no-SMEM-write ASan/UBSan test included. Actual
+logs/preflight-20261106T154513Z/report.json:6of7 checks PASS;74tests one
+NDKskip;4objectsPASS;firmwarestructurePASS. Longesttask19.4s. Overall
+batchFAIL accurately reflects old repo-validator assumptions:12 historical
+patch-number gaps andCRLFbasherrors in3unchanged scripts. Not fixed here.
+Python syntaxPASS. Recovery ring same318745bytes/flush468, exactsamehash
+as0120log, NOT a newhardwaretest. Phone stillrecovery, no0122imagebuilt.
+No newCI attempt; prior2 runner failures remain blocker for linkedkernel.
+Next combineCXpower/WCNSSdiscovery/spawnerrno in one0122RAMboot/logcycle
+after fullbuild, not3separateboots. Dependency sequencing remains mandatory.
+Details mido/notes/preflight-batch.md.
+
+## LATEST 2026-11-06: CI infrastructure blocked twice; phone still TWRP
+
+CI42240304550 attempts1/2 both failed before ANY compile step: hosted
+macOS runner not acquired after15m each; second job127977446146.
+No source/compiler error demonstrated. Do not blindly loop more reruns.
+Source792ee02 is published; local68tests(oneNDKskip) and2ARM64 objectsPASS.
+No0122kernel/image exists and NO device reboot/flash this turn. Verified
+one recovery device at end. Candidate packaging scripts/input prepared
+only; obtain a successful fullbuild on available runner before RAMboot.
+App-launch regression unresolved: need whether icon reacts/briefly opens
+vs no reaction, and whether truly on unlocked home screen. No app exec
+or app crash found in actual0120log. ControlCenter confirmed working.
+GPU still not accelerated/Wi-Fi not started. Never present0121staged
+CX power or read-onlySMEM discovery as a complete driver.
+
+## LATEST 2026-11-06:0121/0122 source published; CI runner failure, one rerun
+
+Source792ee02bca205b6f1f3ce419ee570e89a60caf28 pushed. CI42240304550
+attempt1 FAILED WITHOUT COMPILING: hosted runner not acquired after15m.
+One infrastructure rerun started, job127977446146; wait for actual result.
+Do not claim compilation failure or hardware test.68hosttests/2ARM64
+objects alreadyPASS. Candidate folder out/cx-power-0122-8cpu has only
+preserved0120ADT and cmdline with3new gatedargs; no kernel/image yet.
+Prepared private logs/validate-cx-power-0122.py and boot-cx-power-0122.py
+for strict image/input verification and RAMboot only after successfulCI.
+Phone remainsTWRP. User app-opening regression still unresolved; working
+ControlCenter unchanged in source. Need freshhardwarelog after candidate.
+
+## LATEST 2026-11-06: Control Center works; apps blocked;0121/0122 validated
+
+User confirms0120 Control Center works, apps do not open, severe lag.
+Fresh recovery log bhs-0120-live-20261106.txt318745bytes flush468: all12
+BHS readbacks match/result1, still CX/GXoff and blockers1f. Interior HID
+mask3 vs edge803; no Preferences/MobileSafari/MobileSMS exec or crash.
+Cause of app launch failure NOT established. Do not claim a crash/fix.
+Launchd41035ms -> dyld-map517556ms; mapelapsed87ms success; SpringBoard
+530997ms/backboardd532008ms. Long pause BEFORE map, not map itself.
+New defaultoff midogpucxpower1 only clears CX GDSCR collapse after valid
+ACK/BHS/gates, bounded1000polls, noGX/clocks/memacc/GPU/SMMU/SCM writes.
+midowifiaudit1 read-only existingSMEM WCNSS_CTRL edge6 discovery.
+midospawndiag1 cap64 original spawnerrno/path/parent/uptime reports.
+Working0120 gesture unchanged;68tests PASS oneNDKskip and2ARM64 objects
+PASS. Next task-only commit/CI, separatecandidate with these3args.
+No GPU acceleration or Wi-Fi working claim. Phone TWRP, no reboot yet.
+Details mido/notes/cx-power-0121.md.
+
+## LATEST 2026-11-06: 0120 CI PASS; temporary boot accepted; physical check needed
+
+Source692a457d8223aa8ab1e717a3580f48de9564889f, CI42233539236 PASS6m51s.
+Kernel xnu/out-0120/kernel.development.mido SHA256
+187b9da5bb1d4437bcf2b3a3bede0ff1e68022fafb3f6866020f3f54df748997.
+Image out/bhs-0120-8cpu/package/mido-xnu-shim.img SHA256
+235b1c00e535dd55ad6199c838f9f701eae73b7910346ca295167460ab1bef43.
+Verified exact0117 shim/DTB/ADT/memory/root/outercmdline; only new args
+midogpubhs=1 midohidedge=1. 8CPU and prior audit/CX/HIDtrace retained.
+Scanner sole0xb324b4 hit completeK256 table; zero real unsupported hits.
+One TWRP mido3.7 verified; stockproductmido, known lk2nd RAMboot accepted,
+productlk2nd-msm8953, candidate RAMboot accepted. No flash/root rewrite.
+Private evidence logs/bhs-0120-validation.json and bhs-0120-temp-boot-20261106.json.
+Acceptance by loader only, NOT confirmed UI/GPU/BHS/Control Center success.
+Physical next: boot, early3-5 bottom-up swipes, check touch/WLED/UI, return
+TWRP. Pull fresh log and inspect BHS preflight/12readbacks, before/after
+GPU snapshot, HID mask0x800/duration/gaps, PID1 cache timing/exec uptimes.
+Wi-Fi packet builders still not wired; no radio/network interface yet.
+
+## LATEST 2026-11-06: 0120 edge candidate validated locally; CI next
+
+Continued existing0118/0119 source42b785026f9b9520aa6f06283f838db913ad607f;
+CI42232845573 still queued. New0120 opt-in midohidedge1 latches
+FromEdgeTip from bounded48px edge origin across contact lifetime.
+Donor sweet0071 existed but was never applied on Mido; no coordinates
+or synthesized gestures changed.66tests PASS oneNDKskip and updated
+MidoHID ARM64 compile PASS. Phone verified one recovery device, no reboot.
+Next push0120, await CI, package separate BHS/timing/edge RAM candidate
+preserving0117 shim/ADT/memory/root/8CPU and adding only midogpubhs1
+and midohidedge1. GPU/Wi-Fi/Control Center success NOT established.
+No flashing, no private firmware upload. Details mido/notes/bhs-timing-0119.md.
+
+## LATEST 2026-11-06: 0117 CX ACK confirmed;0118 BHS/0119 timing ready
+
+User says0117 UI/touch unchanged, Control Center absent; photo repeatable
+multi-minute pause at launchd/shared-region/wakeup errors then successful
+boot. Fresh logs/gpu-cx-0117-live-20261106.txt229983bytes flush245 confirms
+L6/L10/CX smpa2level192 all result0; snapshots still blockers1f/GXoff.
+No acceleration. Photo messages explained by empty shared-region lookup
+and invalid wakeup notification destination; NOT proof of corrupt cache
+or source of delay. Add actual timing, do not suppress warnings.
+Local0118 opt-in midogpubhs1 builds12 board LDO init/BHS prep writes only
+after CXack and GXoff; readback each, stop first mismatch; no GDSC/clock/
+memacc/GPU/SMMU/SCM/fuses.0119 uptime exec/PID1 cache-map timing and
+bounded HID duration/maxgap. Wi-Fi pure WCNSS version/NV packet builders
+tested with synthetic buffers, skip validity bitmap, no transport/radio.
+66 tests PASS oneNDKskip;4ARM64 objects PASS. Next review/commit/CI, separate
+candidate with midogpubhs1; phone still TWRP, no reboot this stage.
+Details mido/notes/bhs-timing-0119.md.
+
+## LATEST 2026-11-06: 0117 CI PASS, RAM boot accepted; need recovery log
+
+CI42227703848 PASS6m24s source28a40ff55d6dd375b236284b3ad470384fddfd19.
+Kernel xnu/out-0117/kernel.development.mido SHA256
+0c46b3bf9f266555b2840b8ea967776e57932b302c0bcc760fda0743f0a6c0c3.
+Image out/gpu-cx-0117-8cpu/package/mido-xnu-shim.img SHA256
+250695925d5b2696a8003ea4c6b314770854f74f6f7bd3a04a379a01119dd11c.
+Exact0116 boot inputs preserved; scanner0xb32054 fullK256 data, no real
+unsupported hits. Verified TWRP mido; reboot bootloader, stockproductmido,
+known lk2nd RAM boot accepted, productlk2nd-msm8953,0117 RAM boot accepted.
+No flashing/root/calibration rewrite. Private evidence logs/gpu-cx-0117-*.json.
+Loader acceptance only. User needs short UI/touch/WLED check then TWRP;
+pull fresh log to verify both touch rails and actual GPU CX vote results.
+Do NOT claim hardware ACK fix or CX success yet.0116 did not send CX due
+bad ACK parser; see rpm-0117.md. Previous log has61trace records,31start
+y>=1900,28upward>=200px with>=3events. Control Center still unfixed.
+GPU acceleration/Wi-Fi not enabled. No next hardware stage until actual ACK.
+
+## LATEST 2026-11-06: 0116 hardware logs; correct RPM ACK parser0117
+
+User confirms UI unchanged, Control Center unavailable. Phone TWRP verified.
+Read-only logs/gpu-cx-0116-live-20261106.txt251936bytes/flush316:8CPU,
+many HID traces y1919->1139/1230/1434 with8..11 events reach dispatch.
+Both L6/L10 vote results-9 req/12; GPU CX skipped touch-rails-ok0.
+No GPU CX hardware test occurred. Cause0115 parser/mock assumed wrong
+ACK layout: real packet20bytes header req/12 + KVP msg#/4/request-id.
+0117 pure validator requires all5words and matching ID, mock corrected;
+63 tests PASS oneNDKskip, MidoInput ARM64 PASS. Source documented in
+mido/notes/rpm-0117.md. Next CI then separate candidate same cmdline as
+0116; no power-domain/clock/GPU/SCM/Wi-Fi enable. No reboot this stage yet.
+
+## LATEST 2026-11-06: 0115/0116 CI PASS; temporary boot accepted
+
+CI42224031975 PASS8m40s sourcea2aec5859f87b49be62748f84ac11774e598c1d5.
+Host-only WCNSS board validation follow-up3f986da,63 tests PASS one skip.
+Kernel xnu/out-0116/kernel.development.mido SHA256
+c5186b3c6066861ba8f8db6be0db3ddc1c1d3396eb868f9ff6d8d5100ef1ff84.
+Image out/gpu-cx-0116-8cpu/package/mido-xnu-shim.img SHA256
+fa975f905c1455b0c78a61976dd313843ab44929e8d07452a153e3c9fc48a993.
+Preserved0114 shim/DTB/ADT/memory/root/8CPU/outercmdline; only additions
+midogpucx=1 midohidtrace=1. Scanner sole hit0xb32014 full K256 data table,
+zero actual unsupported instructions. Verified one TWRP mido; reboot
+bootloader (not system), verified stockmido, known lk2nd RAM boot accepted,
+verified lk2nd-msm8953, candidate RAM boot accepted. No flashing/root rewrite.
+Private validation/boot logs gpu-cx-0116-*.json. Loader acceptance ONLY.
+Await physical startup/touch/WLED and a few bottom swipes early (trace
+cap64 contacts), then user return TWRP. Pull fresh persisted log and check
+MIDO GPU CX smpa2level192 result/ACK plus after-vote snapshot; HID TRACE
+start/end/minmax/events for actual bottom gestures. No acceleration/Wi-Fi
+enabled; no GDSC/LDO/clock/GPU/SMMU/SCM writes. No further boot until report.
+GPU next depends on actual CX ACK, then board BHS/memacc/GDSC/root clocks
+sequencing; DT GX forces core_root_clk, parent-supply GFX-LDO. Do not
+clear GDSC collapse blindly or copy A530 power sequence. Own WCNSS board
+allocation/relocation plan validated locally, still no runtime driver.
+
+## LATEST 2026-11-06: parallel0115 CX vote/0116 trace/WCNSS validation
+
+Published sourcea2aec5859f87b49be62748f84ac11774e598c1d5, CI42224031975
+running. Extended WCNSS board relocation planning;63 tests PASS one skip.
+Read-only current recovery dmesg saved logs/twrp-wcnss-reference-20261106.txt
+confirms GFX LDO-mode fuse disabled by default and Pronto reserved region
+assigned; do not confuse Linux recovery evidence with XNU success.
+
+User requests GPU/Wi-Fi/gesture work concurrently, call when physical
+action needed. New opt-in midogpucx=1 requests smpa2 swen1/vlvl192 after
+both touch-rail requests, same local RPM client/call chain; no new thread
+or racing channel. Snapshot repeated after vote; no GDSC/LDO/clocks/GPU/
+SMMU/SCM writes. Fixed RPM success acceptance to require matching msg_id
+and exact12byte payload (stale reply fails closed). No acceleration claim.
+0116 midohidtrace=1 adds bounded64-contact summaries after dispatch,
+no input coordinate/decoder/mask changes. Own WCNSS ELF32 ARM/PAS6 bundle
+structurally validates, allocation6565888/BSS2361408; board Pronto-v3
+reserved8e700000/7MiB vs link8e600000 requires relocation, not direct load.
+Source/test/docs local;60 tests PASS oneNDK skip, both ARM64 objects PASS.
+Full CI then separate opt-in candidate; phone remains TWRP, no reboot yet.
+See mido/notes/gpu-cx-0115.md; local firmware report logs/wcnss-validated-20261106.json.
+
+## LATEST 2026-11-06: 0114 gesture unchanged; fresh log verified
+
+User reports UI/touch unchanged, bottom Control Center still unavailable.
+Long power opens shutdown UI; Cancel requests password, empty Enter passes.
+Verified phone in TWRP. Pulled logs/hid-0114-live-20261106.txt read-only:
+364175 bytes flush1186. New built-in display events marker present, 8/8
+CPUs verified, GPU audit still blockers1f/no writes. Multiple touch-downs
+reach y1919, so a wholly missing bottom edge is contradicted by evidence.
+No move logging exists here; gesture continuity/recognizer policy unproven.
+Password symptom is consistent with existing MidoKeyStore.cpp: explicitly
+no passcode/always unlocked, unlock selectors return success without secret
+verification (patch0038). NOT working passcode security; do not store
+sensitive data or present this build as protected. No auth changes made.
+Log also shows repeated exec bluetoothd/fairplayd.H2 and vmd CPU-limit
+warnings (55/57 percent over roughly160s); possible additional CPU load,
+not proof of their restart cause or sole lag cause. Next inspect userspace
+gesture policy/dispatch continuity, not another blind coordinate change.
+No new build/reboot/flash during this verification.
+
+## LATEST 2026-11-06: 0114 CI passed; temporary RAM boot accepted
+
+CI42176520001 PASS for source2faf82f6096820cdc03cb6a3502d19307f78156a.
+Kernel xnu/out-0114/kernel.development.mido SHA256
+69daa8f83f33ce63d4913f5a8f29765a439e426043c696636179103d75ec0059.
+Image out/hid-0114-8cpu/package/mido-xnu-shim.img SHA256
+2b5d56ee810c2cee4cfb6d17e9ad2976f8c45a6f3f97dc2f4ab2d42368a97efd.
+Verified exact0113 shim+DTB, ADT, memory and inner/outer cmdline; cpus8
+and midogpu1 retained. Scanner sole hit0xb31c54 is verified complete256byte
+SHA256 K256 table, not instruction. New HID registration marker present.
+One mido in TWRP verified; adb reboot bootloader (NOT system), stock mido
+verified, known lk2nd RAM boot accepted, product lk2nd-msm8953 verified,
+0114 RAM boot accepted. No flashing or root replacement. Private evidence:
+logs/hid-0114-validation.json and hid-0114-8cpu-temp-boot-20261106.json.
+Booting OKAY is loader acceptance only. Await user physical bottom-swipe
+test, app/touch/WLED check, then return TWRP and pull fresh persisted log
+to verify built-in display events marker. Do not call Control Center fixed.
+GPU acceleration and Wi-Fi remain unavailable; no new power writes.
+
+## LATEST 2026-11-06: 0114 source2faf82f published; CI42176520001 running
+
+48 native tests OK (NDK skipped); current HID ARM64 compile PASS.
+Committed only0114 patch/test/docs and GPU snapshot handoff; no private
+files. Full CI42176520001 compiling. Preserve0113 baseline; separate0114
+will keep cpus8/midogpu1/shim/DTB/ADT/root. No device reboot this stage yet.
+While CI runs, pinned additional Android mem-acc-regulator.c and
+rpm-smd-regulator.c references locally. DT verifies GPU mem-acc register
+0194415c bit0, corner1->1/corner2->0; GFX init-corner4 (BHS), CX smpa
+resource2 with vlvl key (levels, not microvolts). A future initial BHS4
+probe may avoid untested fuse reads, but this is an untested plan, not an
+enabled rail. Shared RPM channel must be serialized with working touch
+L6/L10 votes; do not add a racing independent RPM client. No power writes.
+
+## CURRENT 2026-11-06: 0113 hardware audit verified; 0114 HID candidate
+
+User returned TWRP: UI/touch works as before, Control Center only via
+AssistiveTouch, not bottom swipe. Fresh logs/gpu-0113-live-20261106.txt
+283525 bytes flush436 no wrap verifies8/8 CPU, FT5435, WLED, complete
+MIDO GPU audit/final no-writes marker. CX00222801 GX08225801; required
+clocks stopped, clamps set, supply status0, blockers1f. GPU prerequisites
+are unmet; no GPU enable/MMIO/SMMU/SCM calls attempted.
+Actual ADT D21AP/iPhone10,2/iPhone8 Plus home-button-type0 (old D22AP
+comments are obsolete). Accepted touch starts near bottom1901..1913 exist.
+Found HID service properties do not propagate into custom event metadata.
+0114 adds Built-In at dispatch and Built-In/DisplayIntegrated finger/hand
+metadata only; no coordinates/decoder/masks/timing/GPU/CPU/root changes.
+Three source-contract/replay tests PASS, current MidoHID.cpp ARM64 compile
+PASS. This is a candidate correction, NOT a proven Control Center fix.
+Details mido/notes/hid-0114.md; next full native suite, CI, separate image.
+
+## LATEST 2026-11-06: 0113 RAM boot accepted; need physical check/TWRP log
+
+Source77e8b54d4853fd10e15e6e7bbfde58a2c9d7d852; CI42172953662 PASS8m48s.
+Published results/handoff docs in follow-up commitfff3d7b (no kernel changes).
+Kernel xnu/out-0113/kernel.development.mido SHA256
+5f745ca87a04fdf5c3655b41a76cf3b836bda4d68b1e091c01d450b5aaa22024.
+Image out/gpu-0113-8cpu/package/mido-xnu-shim.img SHA256
+c512199396bf5ea3fbb0bb64b29580ac1782268259fa267dfc19303a0c811e46.
+Exact0112 shim/DTB/ADT/memory/root/cpus8 preserved; added only midogpu=1.
+Scanner sole raw hit0xb31bb4 verified full SHA256 K256 table, no real hits.
+Validation logs/gpu-0113-validation.json. Stable0112 unchanged.
+After CI actual device inventory: no adb, one stock fastboot product mido.
+No adb reboot sent. Verified known lk2nd/candidate SHA, RAM-booted lk2nd,
+verified product lk2nd-msm8953, RAM-booted0113. Both status0 Booting OKAY,
+no flash/raw partition rewrite/root replacement. Evidence private log
+logs/gpu-0113-8cpu-temp-boot-20261106.json. Loader acceptance only, physical
+iOS/UI/GPU-audit execution not yet confirmed. User must report screen/touch
+and return TWRP for fresh persisted log; require MIDO GPU final no-writes
+marker and actual register snapshot before writing any GPU power sequence.
+This candidate does not enable acceleration or Wi-Fi. See gpu-power-0113.md.
+
+## LATEST 2026-11-06: 0113 published, full kernel CI in progress
+
+User explicitly authorized commit/push. Reviewed source/tests/docs only
+committed77e8b54d4853fd10e15e6e7bbfde58a2c9d7d852 and pushed pub/mido-port.
+CI42172953662 triggered automatically and is building. Native45 tests OK
+(one NDK module skipped) rechecked before commit. NOTES.md, shim/build.sh,
+logs, repair tools, research/private firmware remain uncommitted.
+Phone reverified adb recovery/product mido; no reboot yet. Package0113
+only after CI success, preserve baseline ADT/DTB/shim/root/cpus8 and add
+midogpu=1. No acceleration/Wi-Fi functionality claimed.
+
+## CURRENT 2026-11-06: 0113 GPU power audit ready locally; CI approval gate
+
+User requests continued Android/A5xx hybrid port until user action needed.
+New mido/gpu/mido_gpu_power.h implements board-specific fuse/corner voltage
+planning and read-only12-register GCC/LDO snapshots/blocker classification.
+New mido_gpu_audit.h is hooked from platform start by0113 patch: default
+no access; midogpu=1 reads only GCC/LDO, no writes/GPU/SMMU/fuses/SCM.
+No GPU enable sequence, command execution, Mesa bridge or Wi-Fi yet.
+Native45 tests OK, NDK module skipped, ASan/UBSan PASS. Patch reconstruction
+and canonical-header equality PASS; ARM64 MidoPlatformExpert.cpp object
+compile PASS34392 bytes,407 instruction words zero unsupported-class hits.
+All six power-profile tables independently checked against saved mido DT.
+Stable0112 SHA4810436b...8953c93 unchanged. adb still recovery; no reboot,
+boot, flash or recovery MMIO/debugfs. No full CI or0113 image yet.
+Details, source pin, safety limits and next steps: mido/notes/gpu-power-0113.md.
+Need explicit user permission for source commit/push to existing CI branch.
+Do not commit unrelated shim/build.sh, NOTES.md, repair tools, logs, research
+or any private firmware/calibration. No commits/push performed this stage.
+
+## CURRENT 2026-11-06: GPU/WCNSS firmware preflight, no new kernel yet
+
+Preserve working0112/cpus8/input/WLED. Recovery verified; pulled fresh
+logs/input-0112-gpu-preflight-20261106.txt, 346876 bytes flush693 no wrap.
+8/8 CPU success, FT5435 verification, WLED off/on readbacks present.
+Read-only host backup inspection extracted native A506 six-file firmware
+and WCNSS ten-file firmware plus three private prima configs/calibration.
+All binaries/configs/manifests stay in ignored research/mido-firmware.
+New tools/mido_gpu_firmware.py structurally validates native A506 bundle,
+without loading/authenticating firmware. Nine new regression tests PASS;
+native suite33 PASS, NDK module skipped. Actual A506 inspection PASS.
+Resolved GX0185901c/CX0185904c and msm_gfx_ldo0185f000 with fuse-based
+corners: do NOT use sailfish MMCC/PMI8994 power writes or fixed ZAP address.
+Details/provenance/next steps: mido/notes/gpu-wifi-next.md. No new kernel,
+CI, boot, flash, GPU MMIO or SCM operation. GPU/Wi-Fi remain unimplemented;
+next is tested mido power sequencing, then gated ID and SCM/SMMU/CP.
+No user action needed for continuing source implementation; keep TWRP.
+
+## CURRENT 2026-11-06: user confirms stable0112 touch and app launch
+
+User: touch no longer stops, Settings/Safari/Messages open; Phone black
+screen, bottom Control Center not opening. Other apps untested. No fresh
+0112 log yet; do not claim full GUI test or diagnose black screen as GPU.
+Keep0112 eight cores/WLED/input as baseline. User requests GPU/Wi-Fi from
+HakiOS forks and own Lineage backup. Primary source revisions and verified
+local GPU/WCNSS facts recorded in mido/notes/gpu-wifi-next.md.
+Inspected HakiOS2631f5d (Adreno642L Metal) and ios-sailfish6f27e41
+(Adreno530 freedreno CoreAnimation, QCA6174 PCIe). Saved mido DT shows
+Adreno506 + WCNSS/Pronto, not that PCIe Wi-Fi. Need port, not binary copy.
+No reboot/device commands in this research. Next read-only backup firmware
+inventory, A5xx code/interface comparison, Control Center/Phone logs.
+
+## LATEST 2026-11-06: 0112 8cpu RAM boot accepted; waiting physical input test
+
+User said TWRP, but actual inventories showed no adb and exactly one
+fastboot device, product mido. Communicated discrepancy. Verified known
+lk2nd checksum and 0112 image4810436b...8953c93, RAM-booted lk2nd,
+verified product lk2nd-msm8953, RAM-booted0112. Both status0 and Booting
+OKAY. No flash or partition writes. Evidence in local
+logs/input-0112-8cpu-temp-boot-20261106.json. This is loader acceptance
+only; need user Home/swipe/app/input endurance and power-off/wake results.
+If input fails again return TWRP and pull a fresh persisted log.
+
+## CURRENT 2026-11-06: 0111 physical darkness/wake works; 0112 touch follow-up
+
+User reached Home briefly then touch stopped; log confirms exec MobileSafari.
+Saved logs/input-0111-8cpu-live-20261106.txt: 311898 bytes flush331 no wrap.
+Eight cores; WLED control0x46 readbacks 00 off / 80 on; user reports darkness.
+Rejected raw frames reveal byte0=FF; eleven have coherent ff0001/ff0000
+headers and valid contacts, one ffffff corrupt metadata. Existing mode-bit
+guard rejects all before decode; ten failures stop polling. 0112 adds narrow
+FF compatibility (byte1 zero, count upperbits zero, all contact checks kept),
+bounded FIFO nonempty per-word wait (-9), stale-request regression test.
+Do not claim firmware vs transport origin proven. Local saved-frame replay
+accepts11/rejects1; logs/input-0112-report-replay.json. Native24 tests PASS
+(NDK skipped), ARM64 current-driver compile PASS. Full CI/test boot pending.
+Published 9398aaa; automatic CI 42166309254 PASSED in 7m9s.
+Kernel xnu/out-0112/kernel.development.mido SHA256
+d61c3726818b650f33d28762d9b495b63d70ed8ca736de0befed930f12fcdb5a.
+Ready out/input-0112-8cpu/package/mido-xnu-shim.img SHA256
+4810436b84324a1bccd090ba54feb29aef60a49cd6efc9ea8b51829f78953c93.
+Validation logs/input-0112-validation.json; A53 scanner only known full
+SHA256 data table, zero instruction hits. Shim/DTB/ADT/cmdline preserved
+from0111. Not hardware-booted. User needs TWRP -> Reboot -> Bootloader
+for deliberate next RAM-boot; no further device action sent automatically.
+Details mido/notes/input-0112.md. Retain cpus=8 and working 0111 backlight.
+Copy times29.5-32.1ms; no proof all severe lag is GPU absence. No device
+reboot/flash/debugfs/MMIO this follow-up. User left phone in recovery.
+
+## LATEST 2026-11-06: 0111 8cpu temporary boot accepted, awaiting physical test
+
+User confirmed Bootloader ready. Exactly one fastboot device, product mido.
+Verified image SHA119078b9...cd4d28e and known lk2nd SHA2170c90c...1353cfa.
+RAM-booted lk2nd, verified product lk2nd-msm8953, then RAM-booted 0111.
+Both commands status0 Sending/Booting OKAY; NO flash/partition writes.
+Record logs/input-0111-8cpu-temp-boot-20261106.json. This proves loader
+acceptance only, not GUI success or fixed touch/backlight. User now needs
+to check screen power-off/wake and touch, then return TWRP for raw rejected
+reports if touch still fails. Keep eight cores and previous known images.
+
+## CURRENT 2026-11-06: 0111 ready; device absent, user action needed
+
+CI 42062482744 succeeded (build job 9m17s). Commit a616215. Kernel
+xnu/out-0111/kernel.development.mido SHA256
+d2abd43d8504f615930837633243b5d96885724a0384f24f9ca298c615b8a44b.
+Packaged out/input-0111-8cpu/package/mido-xnu-shim.img SHA256
+119078b9801d2822f71c0deca77fe0a41a925a75267f09023db44da17cd4d28e.
+Image hash rechecked 2026-11-06. cpus=8; shim/DTB/ADT/cmdline preserved
+from working 0110. Validation logs/input-0111-validation.json. A53 scan
+has only the known complete SHA256 constant table, no actual instruction hit.
+No hardware boot of 0111 yet; touch fix NOT claimed, rejected-frame capture
+needed. WLED module-off change still needs darkness/wake hardware test.
+Latest adb devices AND fastboot devices are empty. No reboot/boot/flash
+sent this follow-up. User must connect USB and enter TWRP Bootloader
+(NOT System); verify product mido, RAM-boot known lk2nd, verify product
+lk2nd-msm8953, then RAM-boot 0111. Preserve old images and repaired root.
+
+## CURRENT 2026-11-05: preserve Claude 0110 8-core progress; 0111 preparation
+
+User returned from Claude: lockscreen on 8 cores, working side buttons,
+power only dims backlight, touch not usable. Repo HEAD a31ed7f (0110).
+Read fresh persisted log in TWRP: logs/after-claude-0110-20261105.txt,
+307972 bytes, flush270, no wrap. 8/8 CPUs alive/SGI1 verified. RPM L6/L10
+votes succeed, FT5435 ID54 fw10 verified. Some HID touch coords emitted,
+but repeated read=0 decode failures release contacts and stop polling.
+This is NOT the old absent touch device; do not revert RPM/block fix.
+WLED off in 0110 zeroes sink brightness only; no module disable. Live DT
+confirms SID3 WLED ctrl d800 / sink d900. 0111 adds ctrl+46 bit7 module
+disable/enable with RMW/readback, and first12 rejected full touch reports.
+No decoder relaxation without captured evidence. Not full DSI panel sleep.
+Local ARM64 driver compile PASS; 24 native tests PASS, NDK module skipped.
+Details mido/notes/input-0111.md. Keep cpus=8, not older one-core gates.
+Phone remains recovery: only log tail read, no reboot/flash/debugfs/MMIO.
+Published a616215; CI 42062482744 queued/running, not yet a success.
+Next separate 0111 8cpu package after CI, then user Bootloader/test gate.
+Unrelated shim/build.sh and repair tools untouched.
 
 ## MIDO active 2026-11-04: 0108 built, three RAM-boot images ready, NOT booted
 
