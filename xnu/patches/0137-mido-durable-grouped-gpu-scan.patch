@@ -1,0 +1,142 @@
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -5,6 +5,7 @@
+ #include "mido_gpu_backend.h"
+ 
+ extern "C" int mido_mmio_read32_nofault(uintptr_t address, uint32_t *value);
++extern "C" int mido_log_sync(uint32_t note);
+ 
+ static int
+ mido_gpu_status(int clocks_result)
+@@ -51,41 +52,76 @@ mido_gpu_status(int clocks_result)
+         return -4;
+     }
+     IOLog("MIDO GPU STATUS: begin recoverable scan (mode %u); reads only, no GPU writes\n", mode);
+-    /* byte offsets inside 0x01c00000 (GPU) and 0x01c40000 (SMMU); one abort is recovered per read */
+-    static const struct { const char *name; uint32_t base; uint32_t offset; } probes[] = {
+-        {"gpu+0x0000", 0, 0x0000}, {"gpu rbbm-alwayson-lo", 0, 0x1348}, {"gpu rbbm-int0", 0, 0x1384},
+-        {"gpu rbbm-status", 0, 0x13d4}, {"gpu rbbm-status3", 0, 0x14c0}, {"gpu rbbm-ahb-err", 0, 0x13d0},
+-        {"gpu vbif-version", 0, 0xc000}, {"gpu rbbm-clock-cntl", 0, 0x019c}, {"gpu rbbm-int0-mask", 0, 0x00e0},
+-        {"gpu secvid-trust-cntl", 0, 0x3d000}, {"gpu secvid-tsb-cntl", 0, 0x3e00c},
+-        {"gpu cp-cntl", 0, 0x20c4}, {"gpu cp-me-cntl", 0, 0x20c8}, {"gpu cp-addr-mode", 0, 0x2180},
+-        {"gpu cp-rb-base", 0, 0x2000}, {"gpu cp-rb-rptr", 0, 0x2018}, {"gpu cp-rb-wptr", 0, 0x201c},
+-        {"gpu cp-pfp-base", 0, 0x20d4}, {"gpu cp-pm4-base", 0, 0x20e0}, {"gpu cp-int-status", 0, 0x2c60},
+-        {"smmu sCR0", 1, 0x00}, {"smmu sCR1", 1, 0x04}, {"smmu sCR2", 1, 0x08}, {"smmu sACR", 1, 0x10},
+-        {"smmu idr0", 1, 0x20}, {"smmu idr1", 1, 0x24}, {"smmu idr2", 1, 0x28},
+-        {"smmu sGFSR", 1, 0x48}, {"smmu sGFSYNR0", 1, 0x50},
+-        {"smmu smr0", 1, 0x800}, {"smmu smr1", 1, 0x804}, {"smmu smr2", 1, 0x808}, {"smmu smr3", 1, 0x80c},
+-        {"smmu s2cr0", 1, 0xc00}, {"smmu s2cr1", 1, 0xc04}, {"smmu s2cr2", 1, 0xc08}, {"smmu s2cr3", 1, 0xc0c},
++    /*
++     * Groups run likely-safe first. Before every group and every register the log is forced to disk: if a
++     * protected register resets the phone instead of aborting, the last line on the partition names it.
++     * Boot-arg midogpuskip=<bitmask of groups> skips the offender on the next run.
++     */
++    static const struct { const char *name; uint32_t base; uint32_t offset; uint32_t group; } probes[] = {
++        {"gpu+0x0000", 0, 0x0000, 0}, {"gpu rbbm-alwayson-lo", 0, 0x1348, 0}, {"gpu rbbm-int0", 0, 0x1384, 0},
++        {"gpu rbbm-status", 0, 0x13d4, 0}, {"gpu vbif-version", 0, 0xc000, 0}, {"smmu idr0", 1, 0x20, 0},
++        {"smmu sCR0", 1, 0x00, 0},
++        {"gpu rbbm-status3", 0, 0x14c0, 1}, {"gpu rbbm-ahb-err", 0, 0x13d0, 1},
++        {"gpu rbbm-clock-cntl", 0, 0x019c, 1}, {"gpu rbbm-int0-mask", 0, 0x00e0, 1},
++        {"gpu cp-cntl", 0, 0x20c4, 2}, {"gpu cp-me-cntl", 0, 0x20c8, 2}, {"gpu cp-addr-mode", 0, 0x2180, 2},
++        {"gpu cp-rb-base", 0, 0x2000, 2}, {"gpu cp-rb-rptr", 0, 0x2018, 2}, {"gpu cp-rb-wptr", 0, 0x201c, 2},
++        {"gpu cp-pfp-base", 0, 0x20d4, 2}, {"gpu cp-pm4-base", 0, 0x20e0, 2}, {"gpu cp-int-status", 0, 0x2c60, 2},
++        {"smmu sCR1", 1, 0x04, 3}, {"smmu sCR2", 1, 0x08, 3}, {"smmu sACR", 1, 0x10, 3},
++        {"smmu idr1", 1, 0x24, 3}, {"smmu idr2", 1, 0x28, 3}, {"smmu sGFSR", 1, 0x48, 3}, {"smmu sGFSYNR0", 1, 0x50, 3},
++        {"smmu smr0", 1, 0x800, 4}, {"smmu smr1", 1, 0x804, 4}, {"smmu smr2", 1, 0x808, 4}, {"smmu smr3", 1, 0x80c, 4},
++        {"smmu s2cr0", 1, 0xc00, 5}, {"smmu s2cr1", 1, 0xc04, 5}, {"smmu s2cr2", 1, 0xc08, 5}, {"smmu s2cr3", 1, 0xc0c, 5},
++        {"gpu secvid-trust-cntl", 0, 0x3d000, 6}, {"gpu secvid-tsb-cntl", 0, 0x3e00c, 6},
+     };
++    static const unsigned group_count = 7;
++    unsigned skip = 0;
++    PE_parse_boot_argn("midogpuskip", &skip, sizeof(skip));
++    /* A reset instead of a recoverable abort is possible: refuse to scan without a durable log. */
++    int log_ready = 0;
++    for (unsigned wait = 0; wait < 600 && !log_ready; wait++) {
++        log_ready = mido_log_sync(3);
++        if (!log_ready) {
++            IOSleep(100);
++        }
++    }
++    if (!log_ready) {
++        IOLog("MIDO GPU STATUS: persistent log not ready after 60 s; scan not started\n");
++        ml_io_unmap(mapping, 0x40000);
++        return -7;
++    }
+     vm_offset_t smmu_mapping = ml_io_map_unmappable(0x01c40000, 0x1000, VM_WIMG_IO);
+     uint32_t vbif = 0xffffffffU;
+     int faults = 0, answered = 0;
+-    for (unsigned index = 0; index < sizeof(probes) / sizeof(probes[0]) && faults < 12; index++) {
+-        vm_offset_t base = probes[index].base ? smmu_mapping : mapping;
+-        if (base == 0 || (!probes[index].base && probes[index].offset >= 0x40000)) {
++    for (unsigned group = 0; group < group_count; group++) {
++        if (skip & (1U << group)) {
++            IOLog("MIDO GPU STATUS: group %u skipped by midogpuskip\n", group);
+             continue;
+         }
+-        uint32_t value = 0;
+-        int fault = mido_mmio_read32_nofault(base + probes[index].offset, &value);
+-        IOLog("MIDO GPU STATUS: %s +0x%x %s %08x\n", probes[index].name, probes[index].offset,
+-            fault ? "ABORT(recovered)" : "value", fault ? 0 : value);
+-        if (fault) {
+-            faults++;
+-        } else {
+-            answered++;
+-            if (probes[index].offset == 0xc000 && !probes[index].base) {
+-                vbif = value;
++        IOLog("MIDO GPU STATUS: about to read group %u\n", group);
++        (void)mido_log_sync(4 + group);
++        for (unsigned index = 0; index < sizeof(probes) / sizeof(probes[0]); index++) {
++            if (probes[index].group != group) {
++                continue;
++            }
++            vm_offset_t base = probes[index].base ? smmu_mapping : mapping;
++            if (base == 0 || (!probes[index].base && probes[index].offset >= 0x40000)) {
++                continue;
++            }
++            IOLog("MIDO GPU STATUS: reading %s +0x%x\n", probes[index].name, probes[index].offset);
++            (void)mido_log_sync(32 + index);
++            uint32_t value = 0;
++            int fault = mido_mmio_read32_nofault(base + probes[index].offset, &value);
++            IOLog("MIDO GPU STATUS: %s +0x%x %s %08x\n", probes[index].name, probes[index].offset,
++                fault ? "ABORT(recovered)" : "value", fault ? 0 : value);
++            if (fault) {
++                faults++;
++            } else {
++                answered++;
++                if (probes[index].offset == 0xc000 && !probes[index].base) {
++                    vbif = value;
++                }
+             }
+         }
++        (void)mido_log_sync(64 + group);
+     }
+     if (smmu_mapping) {
+         ml_io_unmap(smmu_mapping, 0x1000);
+--- a/bsd/dev/mido_mmc.c
++++ b/bsd/dev/mido_mmc.c
+@@ -926,6 +926,25 @@ mido_log_start(void)
+ 	}
+ }
+ 
++/*
++ * Synchronous flush for callers about to touch hardware that may reset the phone (TrustZone-owned
++ * registers): the last "about to read" line then survives on the partition. 1 = written, 0 = log not
++ * ready (no writable userdata yet). Never call from interrupt context.
++ */
++int mido_log_sync(uint32_t note);
++
++int
++mido_log_sync(uint32_t note)
++{
++	if (!mm.ready || !mm.writable || !mido_log_on) {
++		return 0;
++	}
++	lck_mtx_lock(&mido_mmc_lock);
++	int error = mido_log_flush(note);
++	lck_mtx_unlock(&mido_mmc_lock);
++	return error == 0;
++}
++
+ /* Root device for rd=mmcroot0 (IOFindBSDRoot). */
+ int mido_mmc_rootdev(dev_t *dev);
+ 

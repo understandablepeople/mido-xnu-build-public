@@ -12,8 +12,16 @@ static bool gpu_mode;
 static bool backend_ready;
 extern "C" bool sweet_gpu_ready(void) { return backend_ready; }
 static void IOLog(const char *, ...) {}
+static unsigned sync_calls, log_ready_after = 0, sync_notes[256], skip_mask;
+static void IOSleep(unsigned) {}
+extern "C" int mido_log_sync(uint32_t note)
+{
+    if (sync_calls < 256) sync_notes[sync_calls] = note;
+    return sync_calls++ >= log_ready_after;
+}
 static bool PE_parse_boot_argn(const char *name, void *output, int size)
 {
+    if (!std::strcmp(name, "midogpuskip")) { assert(size == sizeof(skip_mask)); std::memcpy(output, &skip_mask, sizeof(skip_mask)); return true; }
     assert(!std::strcmp(name, gpu_mode ? "midogpustatus" : "midowificlocks"));
     assert(size == sizeof(mode));
     std::memcpy(output, &mode, sizeof(mode));
@@ -78,7 +86,7 @@ static void reset(bool selected = true)
 {
     gpu_mode = selected; mode = 1;
     backend_ready = true;
-    maps = unmaps = fail_map = gpu_reads = wifi_reads = 0; nofault_calls = 0; abort_after = 99;
+    maps = unmaps = fail_map = gpu_reads = wifi_reads = 0; nofault_calls = 0; abort_after = 99; sync_calls = 0; log_ready_after = 0; skip_mask = 0;
     std::memset(clocks, 0, sizeof(clocks));
     clocks[0x1000 / 4] = 2;
     clocks[0x104c / 4] = clocks[0x101c / 4] = 0xa0222800;
@@ -111,6 +119,20 @@ int main()
     assert(mido_gpu_status(1) == -5 && maps == 3 && unmaps == 3);
     reset(); gpu[0xc000 / 4] = 0; assert(mido_gpu_status(1) == -5 && maps == 3 && unmaps == 3);
     reset(); gpu[0xc000 / 4] = 0xffffffffU; assert(mido_gpu_status(1) == -5 && maps == 3 && unmaps == 3);
+    /* durable-log gating: no log means no scan and no register read */
+    reset(); log_ready_after = 100000; assert(mido_gpu_status(1) == -7 && nofault_calls == 0 && unmaps == 2);
+    /* log comes up late (after a few polls): scan still runs */
+    reset(); log_ready_after = 5; gpu[0xc000 / 4] = 0x1234; assert(mido_gpu_status(1) == 1 && nofault_calls == 37);
+    /* a full scan reads 37 registers in 7 groups, one durable flush before each group and each register */
+    reset(); gpu[0xc000 / 4] = 0x1234;
+    assert(mido_gpu_status(1) == 1 && nofault_calls == 37 && sync_calls >= 1 + 7 + 37);
+    /* skip mask drops whole groups: skipping the secure group (6) removes exactly its 2 reads */
+    reset(); skip_mask = 1U << 6; gpu[0xc000 / 4] = 0x1234;
+    assert(mido_gpu_status(1) == 1 && nofault_calls == 35);
+    reset(); skip_mask = (1U << 6) | (1U << 2); gpu[0xc000 / 4] = 0x1234;
+    assert(mido_gpu_status(1) == 1 && nofault_calls == 26);
+    /* skipping group 0 loses the version probe: result must not claim success */
+    reset(); skip_mask = 1U; assert(mido_gpu_status(1) == -5);
     reset(false); mode = 0; assert(mido_wcnss_clocks() == 0 && maps == 0);
     reset(false); mode = 2; assert(mido_wcnss_clocks() == -1 && maps == 0);
     for (unsigned failed = 1; failed <= 3; failed++) {
