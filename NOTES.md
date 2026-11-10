@@ -1,5 +1,24 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## MIDO active 2026-11-10:0138 GPU/SMMU state fully scanned; stream->CB maps known, CBs OFF
+
+Runs 0136-0138 (CI 42681695838/42868967912/42875451091), all RAM boot, no flash.
+0136 (24 new reads, log not yet on disk) and 0137 full scan: PHONE RESET during group 3,
+last durable line "reading smmu sCR1 +0x4" (log flushed to disk before every register since 0137).
+Cause of reset NOT proven; sCR1/sCR2/sACR/idr1/idr2/sGFSR/sGFSYNR0 group skipped with midogpuskip=8.
+With midogpuskip=8 (0138): 42 reads answered, 0 aborted, iOS up on 8 CPUs, UI normal.
+Verified values: CP idle (CP_CNTL=0 RB_BASE=0 RPTR=WPTR=0 PFP/PM4_BASE=0 INT_STATUS=0), CP_ME_CNTL=0x303,
+SECVID_TRUST_CNTL=0 SECVID_TSB_CNTL=0, RBBM_AHB_ERROR_STATUS=0, IDR0=78014404 NUMSMRG=4 sCR0=00200436.
+Stream map: SMR0=80010000(ids0,1)->S2CR0 30000000 CB0 TRANSLATE; SMR1=80000002(id2)->CB1; SMR2=80000003(id3)->CB3;
+SMR3 empty. GR1 CBAR0/1/3 = 0001b003/0001b006/0001b008 (TYPE=1). CBA2R0=0. CB0 SCTLR=0 TTBR0=0 MAIR0=0
+TTBCR=80000000 FSR=00000200; CB1/CB3 SCTLR=0. DT: gfx3d_user iommus <&smmu 0>, gfx3d_secure <&smmu 2>.
+=> Context banks are not enabled and have no tables: a first CP/IB fetch on those streams would fault.
+Not proven: whether CB programming from EL1 is permitted (DT qcom,enable-static-cb: TZ owns the CBs),
+whether secure mode is really off (reads only), anything about CP DMA, rendering.
+Donor evidence: Pixel 1 (ios-sailfish 0120-0123) identity-maps via CB0, SMR0=stream 0 only, and its first
+CP fetch without SMMU reset the phone. Android a5xx loads pm4/pfp at GPU VA, fw->data skips a 4-byte header.
+Next: program CB0 stage-1 identity (writes), then start CP with ring + ME_INIT. Needs SMMU writes: risk of reset.
+
 ## MIDO active 2026-11-09:0135 GPU REGISTERS ANSWER on mido (first time); no rendering yet
 
 RAM-boot of CI 42674464439 image gpu-0135-secure-smmu-8cpu: with midogpusecure=1
