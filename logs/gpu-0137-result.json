@@ -1,0 +1,28 @@
+{
+ "run": "0137 full scan, CI 42868967912",
+ "outcome": "phone reset (Android booted) during group 3",
+ "last_durable_line": "MIDO GPU STATUS: reading smmu sCR1 +0x4",
+ "log_total_bytes": 16019,
+ "flush": 30,
+ "groups_completed": [
+  0,
+  1,
+  2
+ ],
+ "verified_values": {
+  "rbbm-status3": 0,
+  "rbbm-ahb-err": 0,
+  "rbbm-clock-cntl": 0,
+  "rbbm-int0-mask": 0,
+  "cp-cntl": 0,
+  "cp-me-cntl": "0x303",
+  "cp-addr-mode": 0,
+  "cp-rb-base": 0,
+  "cp-rb-rptr": 0,
+  "cp-rb-wptr": 0,
+  "cp-pfp-base": 0,
+  "cp-pm4-base": 0,
+  "cp-int-status": 0
+ },
+ "hypothesis_unverified": "non-secure read of SMMU GR0+0x4 (sCR1) is blocked by TrustZone/XPU and resets the SoC"
+}

@@ -28,7 +28,7 @@ static bool PE_parse_boot_argn(const char *name, void *output, int size)
     return true;
 }
 static unsigned abort_after = 99, nofault_calls = 0;
-static uint32_t smmu_window[0x400];
+static uint32_t smmu_window[0x4000];
 static vm_offset_t ml_io_map_unmappable(vm_offset_t address, size_t bytes, unsigned flags)
 {
     assert(flags == VM_WIMG_IO);
@@ -36,7 +36,7 @@ static vm_offset_t ml_io_map_unmappable(vm_offset_t address, size_t bytes, unsig
     uint32_t *target = nullptr;
     if (gpu_mode) {
         if (address == 0x01858000) { assert(bytes == sizeof(clocks)); target = clocks; }
-        else if (address == 0x01c40000) { assert(bytes == 0x1000 && 0x1000 <= sizeof(smmu_window)); target = smmu_window; }
+        else if (address == 0x01c40000) { assert(bytes == 0x10000 && 0x10000 <= sizeof(smmu_window)); target = smmu_window; }
         else { assert(address == 0x01c00000 && bytes == 0x40000 && sizeof(gpu) >= 0x40000); target = gpu; }
     } else {
         assert(bytes == 4096);
@@ -50,7 +50,7 @@ static void ml_io_unmap(vm_offset_t address, size_t bytes)
 {
     if (gpu_mode) assert((address == (vm_offset_t)clocks && bytes == sizeof(clocks)) ||
         (address == (vm_offset_t)gpu && bytes == 0x40000) ||
-        (address == (vm_offset_t)smmu_window && bytes == 0x1000));
+        (address == (vm_offset_t)smmu_window && bytes == 0x10000));
     else assert(bytes == 4096 && (address == (vm_offset_t)crypto || address == (vm_offset_t)votes || address == (vm_offset_t)pll));
     unmaps++;
 }
@@ -122,15 +122,15 @@ int main()
     /* durable-log gating: no log means no scan and no register read */
     reset(); log_ready_after = 100000; assert(mido_gpu_status(1) == -7 && nofault_calls == 0 && unmaps == 2);
     /* log comes up late (after a few polls): scan still runs */
-    reset(); log_ready_after = 5; gpu[0xc000 / 4] = 0x1234; assert(mido_gpu_status(1) == 1 && nofault_calls == 37);
-    /* a full scan reads 37 registers in 7 groups, one durable flush before each group and each register */
+    reset(); log_ready_after = 5; gpu[0xc000 / 4] = 0x1234; assert(mido_gpu_status(1) == 1 && nofault_calls == 49);
+    /* a full scan reads 49 registers in 9 groups, one durable flush before each group and each register */
     reset(); gpu[0xc000 / 4] = 0x1234;
-    assert(mido_gpu_status(1) == 1 && nofault_calls == 37 && sync_calls >= 1 + 7 + 37);
+    assert(mido_gpu_status(1) == 1 && nofault_calls == 49 && sync_calls >= 1 + 9 + 49);
     /* skip mask drops whole groups: skipping the secure group (6) removes exactly its 2 reads */
     reset(); skip_mask = 1U << 6; gpu[0xc000 / 4] = 0x1234;
-    assert(mido_gpu_status(1) == 1 && nofault_calls == 35);
+    assert(mido_gpu_status(1) == 1 && nofault_calls == 47);
     reset(); skip_mask = (1U << 6) | (1U << 2); gpu[0xc000 / 4] = 0x1234;
-    assert(mido_gpu_status(1) == 1 && nofault_calls == 26);
+    assert(mido_gpu_status(1) == 1 && nofault_calls == 38);
     /* skipping group 0 loses the version probe: result must not claim success */
     reset(); skip_mask = 1U; assert(mido_gpu_status(1) == -5);
     reset(false); mode = 0; assert(mido_wcnss_clocks() == 0 && maps == 0);

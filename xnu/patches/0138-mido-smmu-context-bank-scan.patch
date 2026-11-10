@@ -1,0 +1,46 @@
+--- a/iokit/Kernel/arm/mido_gpu_status.h
++++ b/iokit/Kernel/arm/mido_gpu_status.h
+@@ -71,8 +71,15 @@ mido_gpu_status(int clocks_result)
+         {"smmu smr0", 1, 0x800, 4}, {"smmu smr1", 1, 0x804, 4}, {"smmu smr2", 1, 0x808, 4}, {"smmu smr3", 1, 0x80c, 4},
+         {"smmu s2cr0", 1, 0xc00, 5}, {"smmu s2cr1", 1, 0xc04, 5}, {"smmu s2cr2", 1, 0xc08, 5}, {"smmu s2cr3", 1, 0xc0c, 5},
+         {"gpu secvid-trust-cntl", 0, 0x3d000, 6}, {"gpu secvid-tsb-cntl", 0, 0x3e00c, 6},
++        /* stream->context map is known (0137): SMR0 ids0-1->CB0, SMR1 id2->CB1, SMR2 id3->CB3. Context bank base
++         * = SMMU base + size/2 (0x8000) + n*0x1000 (4K pages, size 0x10000). Offsets from Android arm-smmu.c. */
++        {"smmu gr1 cbar0", 1, 0x1000, 7}, {"smmu gr1 cbar1", 1, 0x1004, 7}, {"smmu gr1 cbar3", 1, 0x100c, 7},
++        {"smmu gr1 cba2r0", 1, 0x1800, 7},
++        {"smmu cb0 sctlr", 1, 0x8000, 8}, {"smmu cb0 ttbr0-lo", 1, 0x8020, 8}, {"smmu cb0 ttbr0-hi", 1, 0x8024, 8},
++        {"smmu cb0 ttbcr", 1, 0x8030, 8}, {"smmu cb0 mair0", 1, 0x8038, 8}, {"smmu cb0 fsr", 1, 0x8058, 8},
++        {"smmu cb1 sctlr", 1, 0x9000, 8}, {"smmu cb3 sctlr", 1, 0xb000, 8},
+     };
+-    static const unsigned group_count = 7;
++    static const unsigned group_count = 9;
+     unsigned skip = 0;
+     PE_parse_boot_argn("midogpuskip", &skip, sizeof(skip));
+     /* A reset instead of a recoverable abort is possible: refuse to scan without a durable log. */
+@@ -88,7 +95,7 @@ mido_gpu_status(int clocks_result)
+         ml_io_unmap(mapping, 0x40000);
+         return -7;
+     }
+-    vm_offset_t smmu_mapping = ml_io_map_unmappable(0x01c40000, 0x1000, VM_WIMG_IO);
++    vm_offset_t smmu_mapping = ml_io_map_unmappable(0x01c40000, 0x10000, VM_WIMG_IO);
+     uint32_t vbif = 0xffffffffU;
+     int faults = 0, answered = 0;
+     for (unsigned group = 0; group < group_count; group++) {
+@@ -103,7 +110,7 @@ mido_gpu_status(int clocks_result)
+                 continue;
+             }
+             vm_offset_t base = probes[index].base ? smmu_mapping : mapping;
+-            if (base == 0 || (!probes[index].base && probes[index].offset >= 0x40000)) {
++            if (base == 0 || probes[index].offset >= (probes[index].base ? 0x10000U : 0x40000U)) {
+                 continue;
+             }
+             IOLog("MIDO GPU STATUS: reading %s +0x%x\n", probes[index].name, probes[index].offset);
+@@ -124,7 +131,7 @@ mido_gpu_status(int clocks_result)
+         (void)mido_log_sync(64 + group);
+     }
+     if (smmu_mapping) {
+-        ml_io_unmap(smmu_mapping, 0x1000);
++        ml_io_unmap(smmu_mapping, 0x10000);
+     }
+     ml_io_unmap(mapping, 0x40000);
+     IOLog("MIDO GPU STATUS: scan done answered=%d aborted=%d\n", answered, faults);
